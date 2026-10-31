@@ -95,6 +95,11 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean("video_fill", false)
         set(value) = prefs.edit { putBoolean("video_fill", value) }
 
+    /** Keep the player in landscape (either way up) instead of turning with the phone. */
+    var landscapeLock: Boolean
+        get() = prefs.getBoolean("landscape_lock", false)
+        set(value) = prefs.edit { putBoolean("landscape_lock", value) }
+
     /** Whether the first-run gesture guide has been dismissed. */
     var gestureGuideSeen: Boolean
         get() = prefs.getBoolean("gesture_guide_seen", false)
