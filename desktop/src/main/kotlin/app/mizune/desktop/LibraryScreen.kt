@@ -131,7 +131,7 @@ fun LibraryHeader(
                 )
             }
         }
-        UpdatePill(app, onRestartToUpdate)
+        if (app.settings.updatesInHeader) UpdatePill(app, onRestartToUpdate, Modifier.padding(end = 6.dp))
         IconAction(onClick = onOpenSettings) { Cog(it) }
     }
 }

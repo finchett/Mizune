@@ -5,6 +5,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -16,10 +19,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.IOException
 
-/** Where an update stands, for the library. */
+/** Where an update stands, for the library's header and the foot of the settings. */
 sealed interface AppUpdateState {
-    data object None : AppUpdateState
-    data class Downloading(val version: String, val progress: Float) : AppUpdateState
+    /** Not checked yet, or the last check failed (it's tried again later). */
+    data object Unknown : AppUpdateState
+    data object UpToDate : AppUpdateState
+    /** Out, and waiting to be asked for: updates don't download by themselves (Prefs.autoUpdate). */
+    data class Offered(val version: String, val notes: String) : AppUpdateState
+    /** Out, but held back while the connection is metered; it downloads once it isn't. */
+    data class Waiting(val version: String, val notes: String) : AppUpdateState
+    /** On its way; [notes] are its release notes. */
+    data class Downloading(val version: String, val notes: String, val progress: Float) : AppUpdateState
     /** Downloaded and checked, waiting to go in. [notes] are its release notes. */
     data class Ready(val version: String, val notes: String, val apk: File) : AppUpdateState
     data class Installing(val version: String, val notes: String) : AppUpdateState
@@ -28,33 +38,61 @@ sealed interface AppUpdateState {
 /**
  * Keeps the app on the latest release. It checks the feed ([Updates]) at launch and every few
  * hours and downloads a newer APK in the background; Android then checks it carries our signing
- * key before it replaces the app.
+ * key before it replaces the app. Nothing is downloaded over a metered connection: the update
+ * waits, and is fetched as soon as the phone is on one that isn't. With automatic updates off, a
+ * newer release is only offered, and fetched when asked for ([download]).
  *
  * The first update asks: Android wants "Install unknown apps" allowed for this app, then a tap on
  * its confirmation. That install makes this app its own installer, after which (Android 12 and
  * newer) updates go in without asking, whenever the app is put away off the player.
  */
 class AppUpdater(private val app: App) {
-    private val _state = MutableStateFlow<AppUpdateState>(AppUpdateState.None)
+    private val _state = MutableStateFlow<AppUpdateState>(AppUpdateState.Unknown)
     val state: StateFlow<AppUpdateState> = _state.asStateFlow()
 
     /** The notes of the update on its way, for its first launch. */
     val whatsNew = WhatsNew(File(app.filesDir, "whats-new.json"))
 
     private val dir = File(app.cacheDir, "updates")
+    private val connectivity = app.getSystemService(ConnectivityManager::class.java)
+    // notified to check again before the next round is due
+    private val wake = Object()
+    // the version asked for by [download], fetched whatever the settings or the connection
+    @Volatile private var asked: String? = null
 
     fun start() {
+        connectivity.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                val unmetered = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                if (unmetered && _state.value is AppUpdateState.Waiting) checkNow()
+            }
+        })
         Thread({
             while (true) {
                 try {
                     check()
                 } catch (e: Exception) {
                     app.logError("update check", e)
-                    if (_state.value is AppUpdateState.Downloading) _state.value = AppUpdateState.None
+                    if (_state.value is AppUpdateState.Downloading) _state.value = AppUpdateState.Unknown
                 }
-                Thread.sleep(CHECK_EVERY_MS)
+                synchronized(wake) { wake.wait(CHECK_EVERY_MS) }
             }
         }, "updates").apply { isDaemon = true }.start()
+    }
+
+    /** Fetches the update on offer, or waiting for an unmetered connection, now. */
+    fun download() {
+        asked = when (val state = _state.value) {
+            is AppUpdateState.Offered -> state.version
+            is AppUpdateState.Waiting -> state.version
+            else -> return
+        }
+        checkNow()
+    }
+
+    /** Checks again without waiting for the next round: the settings changed, say. */
+    fun checkNow() {
+        synchronized(wake) { wake.notifyAll() }
     }
 
     private fun check() {
@@ -62,14 +100,29 @@ class AppUpdater(private val app: App) {
         val code = versionCode(release.version)
         if (code <= BuildConfig.VERSION_CODE) {
             dir.deleteRecursively()
-            _state.value = AppUpdateState.None
+            _state.value = AppUpdateState.UpToDate
             return
         }
         if (_state.value.let { it is AppUpdateState.Ready && it.version == release.version || it is AppUpdateState.Installing }) return
         val asset = release.assets[PLATFORM] ?: return
-        _state.value = AppUpdateState.Downloading(release.version, 0f)
-        val apk = Updates.download(asset, File(dir, asset.name)) { progress ->
-            _state.value = AppUpdateState.Downloading(release.version, progress)
+        val target = File(dir, asset.name)
+        if (asked != release.version && !Updates.downloaded(asset, target)) {
+            if (!app.prefs.autoUpdate) {
+                _state.value = AppUpdateState.Offered(release.version, release.notes)
+                return
+            }
+            if (connectivity.isActiveNetworkMetered) {
+                _state.value = AppUpdateState.Waiting(release.version, release.notes)
+                return
+            }
+        }
+        _state.value = AppUpdateState.Downloading(release.version, release.notes, 0f)
+        val apk = Updates.download(asset, target) { progress ->
+            // a step per percent, not per block read
+            val shown = (progress * 100).toInt() / 100f
+            if ((_state.value as? AppUpdateState.Downloading)?.progress != shown) {
+                _state.value = AppUpdateState.Downloading(release.version, release.notes, shown)
+            }
         }
         val info = app.packageManager.getPackageArchiveInfo(apk.path, 0)
         if (info?.packageName != app.packageName || info.longVersionCode != code.toLong()) {
@@ -136,7 +189,7 @@ class AppUpdater(private val app: App) {
         app.logError("update install", IOException(message ?: "failed"))
         val installing = _state.value as? AppUpdateState.Installing ?: return
         val apk = dir.listFiles().orEmpty().firstOrNull { it.name.endsWith(".apk") }
-        _state.value = if (apk != null) AppUpdateState.Ready(installing.version, installing.notes, apk) else AppUpdateState.None
+        _state.value = if (apk != null) AppUpdateState.Ready(installing.version, installing.notes, apk) else AppUpdateState.Unknown
     }
 
     companion object {

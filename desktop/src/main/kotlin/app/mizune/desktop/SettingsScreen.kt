@@ -1,5 +1,6 @@
 package app.mizune.desktop
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -131,7 +132,6 @@ fun SettingsSidebar(
     pane: SettingsPane,
     onPane: (SettingsPane) -> Unit,
     onBack: () -> Unit,
-    onRestartToUpdate: () -> Unit = {},
 ) {
     val update by app.updater.state.collectAsState()
     Row(Modifier.width(SidebarWidth).fillMaxHeight()) {
@@ -180,27 +180,51 @@ fun SettingsSidebar(
             ) {
                 // the app icon carries its own margin, so 40 dp draws a 32 dp tile
                 Image(painterResource("icon.png"), contentDescription = null, modifier = Modifier.size(40.dp))
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text("Mizune", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Text(
                         "Version $APP_VERSION" + if (update == UpdateState.UpToDate) " · latest" else "",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    (update as? UpdateState.Downloading)?.let { state ->
-                        Text(
-                            "Getting ${state.version}… ${(state.progress * 100).toInt()}%",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    UpdateLine(update)
                 }
-            }
-            if (update is UpdateState.Ready || update is UpdateState.Available) {
-                Box(Modifier.padding(start = 12.dp, bottom = 14.dp)) { UpdatePill(app, onRestartToUpdate) }
             }
         }
         VerticalDivider(color = MaterialTheme.colorScheme.hairline)
+    }
+}
+
+/**
+ * Under the version at the foot of the sidebar: an update that's out, on its way (with a bar that
+ * fills as it downloads) or ready. Its notes and the way to get it or install it are in About.
+ */
+@Composable
+private fun UpdateLine(update: UpdateState) {
+    val text = when (update) {
+        is UpdateState.Waiting -> "${update.version} waits for an unmetered connection"
+        is UpdateState.Downloading -> "${update.version} on its way · ${(update.progress * 100).toInt()}%"
+        is UpdateState.Ready -> "${update.version} is ready to install"
+        is UpdateState.Offered -> "${update.version} is out"
+        is UpdateState.Available -> "${update.version} is out"
+        else -> return
+    }
+    val lit = update is UpdateState.Ready || update is UpdateState.Offered || update is UpdateState.Available
+    Text(
+        text,
+        fontSize = 12.sp,
+        fontWeight = if (lit) FontWeight.Medium else null,
+        color = if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (update is UpdateState.Downloading) {
+        val filled by animateFloatAsState(update.progress, label = "filled")
+        Box(
+            Modifier.padding(top = 5.dp, bottom = 2.dp).fillMaxWidth().height(3.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        ) {
+            Box(Modifier.fillMaxWidth(filled).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+        }
     }
 }
 
@@ -298,6 +322,26 @@ private fun GeneralPane(app: DesktopApp) {
             ) {
                 LanguageSelect(settings.peekLanguage, allowNone = true, onSelect = settings::updatePeekLanguage)
             }
+        }
+    }
+    Section("Updates") {
+        Card {
+            if (app.updater.updatesItself) {
+                ToggleRow(
+                    "Update automatically",
+                    "Downloads new versions in the background, over connections that aren't metered, and puts them in when you quit",
+                    settings.autoUpdate,
+                ) {
+                    settings.updateAutoUpdate(it)
+                    app.updater.checkNow()
+                }
+                RowDivider()
+            }
+            ToggleRow(
+                "Show updates in the header",
+                "A new version shows at the top of the library, as well as here",
+                settings.updatesInHeader, settings::updateUpdatesInHeader,
+            )
         }
     }
     Section("Privacy") {
