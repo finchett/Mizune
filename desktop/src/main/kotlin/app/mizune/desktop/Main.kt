@@ -240,12 +240,14 @@ fun main(args: Array<String>) {
             }
             val fullscreen = isFullscreen()
             SideEffect { keys.fullscreen = fullscreen }
-            val frame = remember { if (ownsFrame) WindowFrame(window, windowState) else null }
+            val ownWindow = remember { WindowFrame(window, windowState) }
+            val frame = ownWindow.takeIf { ownsFrame }
             LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(720, 480) }
             if (isWindows) LaunchedEffect(windowsFullscreen) { WindowsFullscreen.set(window, windowsFullscreen) }
             DesktopTheme(app.settings.themeFamily, app.settings.themeMode) {
                 CompositionLocalProvider(
                     LocalWindowFrame provides frame?.takeIf { !fullscreen },
+                    LocalMovableWindow provides ownWindow.takeIf { !fullscreen },
                     LocalTrafficLights provides (isMac && !fullscreen),
                     LocalCorners provides Corners(if (fullscreen) 0.0 else MacTrafficLights.cornerRadius),
                 ) {

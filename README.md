@@ -100,6 +100,7 @@ exported as a file to keep or share, or imported from one.
 | s | hide or show the panel; when it's hidden, the line goes over the video |
 | z, or ⌘ + scroll | fill the area, or fit the whole picture |
 | f, F11, or double-click | full screen |
+| drag the video | move the window |
 | ⌘ (Ctrl) + 1–6 | Anime4K modes A, B, C, A+A, B+B, C+A |
 | ⌘ (Ctrl) + 0 | Anime4K off |
 | Esc | close a lookup, leave full screen, then back to the library |
