@@ -128,6 +128,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -260,6 +262,26 @@ private fun Modifier.edgeDrag(
             if (dragging) onDragEnd()
         }
     }
+}
+
+/**
+ * Rounds the right corners of the video that ends where this starts, [inset] in from the top and
+ * bottom: the corners' outsides, in [color], drawn just left of this.
+ */
+private fun DrawScope.videoEndCorners(radius: Float, inset: Float, color: Color) {
+    val top = inset
+    val bottom = size.height - inset
+    val corners = Path().apply {
+        moveTo(0f, top)
+        lineTo(0f, top + radius)
+        arcTo(Rect(Offset(-radius, top + radius), radius), 0f, -90f, false)
+        close()
+        moveTo(0f, bottom)
+        lineTo(0f, bottom - radius)
+        arcTo(Rect(Offset(-radius, bottom - radius), radius), 0f, 90f, false)
+        close()
+    }
+    drawPath(corners, color)
 }
 
 /**
@@ -511,6 +533,7 @@ fun PlayerScreen(
                     lineSize = app.prefs.subtitleSize,
                     // as wide as it is with the panel off screen
                     surfaceWidth = if (landscape) maxWidth - gap * 2 else null,
+                    roundRight = !(landscape && panelOnScreenBeside),
                     modifier = modifier,
                 )
             }
@@ -572,8 +595,14 @@ fun PlayerScreen(
                         content = {
                             videoArea(Modifier.padding(start = gap, top = gap, bottom = gap, end = videoEndGap))
                             if (panelOnScreenBeside) {
-                                // the video surface runs on under the gap and the panel: cover it
-                                Box(Modifier.background(screenColor))
+                                // the video surface runs on under the gap and the panel: cover it. The
+                                // video's right corners are rounded from here too, so they keep to the
+                                // edge as it moves; the picture under them lags it a frame.
+                                Box(
+                                    Modifier.background(screenColor).then(
+                                        if (rounded) Modifier.drawBehind { videoEndCorners(cardRadius.toPx(), gap.toPx(), screenColor) } else Modifier,
+                                    ),
+                                )
                                 sidePanel(Modifier.padding(start = gap / 2, top = gap, end = gap, bottom = gap).clip(panelShape))
                             }
                         },
@@ -665,6 +694,7 @@ fun PlayerScreen(
  * With [surfaceWidth], the video surface keeps that width, running on past the right edge (whatever
  * is there must cover it), and the picture is kept to the part that shows: a surface that changes
  * size lags the rest of the screen, so the video would jump as the panel moves.
+ * Without [roundRight], only the left corners are rounded: what's beside it rounds the others.
  */
 @Composable
 private fun VideoArea(
@@ -677,6 +707,7 @@ private fun VideoArea(
     lineOver: Boolean,
     lineSize: Float,
     surfaceWidth: Dp?,
+    roundRight: Boolean,
     modifier: Modifier,
 ) {
     val ended by session.ended.collectAsState()
@@ -777,11 +808,12 @@ private fun VideoArea(
         if (rounded) {
             // SurfaceView ignores Compose clipping, so paint the corners over it instead
             Canvas(Modifier.fillMaxSize()) {
-                val radius = cardRadius.toPx()
+                val radius = CornerRadius(cardRadius.toPx())
+                val right = if (roundRight) radius else CornerRadius.Zero
                 val corners = Path().apply {
                     fillType = PathFillType.EvenOdd
                     addRect(Rect(0f, 0f, size.width, size.height))
-                    addRoundRect(RoundRect(0f, 0f, size.width, size.height, CornerRadius(radius)))
+                    addRoundRect(RoundRect(0f, 0f, size.width, size.height, radius, right, right, radius))
                 }
                 drawPath(corners, maskColor)
             }
