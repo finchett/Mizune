@@ -39,9 +39,11 @@ import app.mizune.update.AppUpdateState
 import kotlin.reflect.KClass
 
 /**
- * At the foot of the settings from the moment an update is found: "1.2.0 on its way", filling
- * up as it downloads, then "What's new in 1.2.0". Either opens its notes, the second with a way to
- * install it (on Android 12 and newer it also goes in by itself once the app is put away).
+ * In the library's header (unless turned off) and at the foot of the settings, from the moment an
+ * update is found: "1.2.0 on its way", filling up as it downloads, then "What's new in 1.2.0".
+ * Either opens its notes, the second with a way to install it (on Android 12 and newer it also
+ * goes in by itself once the app is put away). If it waits to be asked for, "1.2.0 is out" opens
+ * its notes with a way to download it.
  */
 @Composable
 fun UpdatePill(app: App, modifier: Modifier = Modifier) {
@@ -51,7 +53,11 @@ fun UpdatePill(app: App, modifier: Modifier = Modifier) {
     if (pillText(update) == null) return
     val progress = (update as? AppUpdateState.Downloading)?.progress
     // once it's downloaded the fill runs to the end and fades, as the words change over
-    val filled by animateFloatAsState(progress ?: 1f, label = "filled")
+    // runs to the end once it's downloaded; starts from nothing when a download begins
+    val filled by animateFloatAsState(
+        progress ?: if (update is AppUpdateState.Ready || update is AppUpdateState.Installing) 1f else 0f,
+        label = "filled",
+    )
     val fillAlpha by animateFloatAsState(
         if (progress != null) 0.22f else 0f,
         tween(durationMillis = 500, delayMillis = 300),
@@ -65,7 +71,7 @@ fun UpdatePill(app: App, modifier: Modifier = Modifier) {
     Surface(
         onClick = {
             // once it's downloaded its notes are kept for its first launch, which needn't show them again
-            if (progress == null) app.updater.whatsNew.seen()
+            if (update is AppUpdateState.Ready) app.updater.whatsNew.seen()
             readingNotes = true
         },
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
@@ -96,6 +102,30 @@ fun UpdatePill(app: App, modifier: Modifier = Modifier) {
     }
     if (readingNotes) {
         when (val state = update) {
+            is AppUpdateState.Offered -> WhatsNewDialog(
+                eyebrow = "Out now",
+                version = state.version,
+                notes = state.notes,
+                confirm = "Download",
+                onConfirm = {
+                    readingNotes = false
+                    app.updater.download()
+                },
+                later = "Not now",
+                onDismiss = { readingNotes = false },
+            )
+            is AppUpdateState.Waiting -> WhatsNewDialog(
+                eyebrow = "Waiting for an unmetered connection",
+                version = state.version,
+                notes = state.notes,
+                confirm = "Download now",
+                onConfirm = {
+                    readingNotes = false
+                    app.updater.download()
+                },
+                later = "Wait",
+                onDismiss = { readingNotes = false },
+            )
             is AppUpdateState.Downloading -> WhatsNewDialog(
                 eyebrow = "On its way · ${(state.progress * 100).toInt()}%",
                 version = state.version,
@@ -130,6 +160,8 @@ fun UpdatePill(app: App, modifier: Modifier = Modifier) {
 }
 
 private fun pillText(update: AppUpdateState): String? = when (update) {
+    is AppUpdateState.Offered -> "✦  ${update.version} is out"
+    is AppUpdateState.Waiting -> "✦  ${update.version} is out"
     is AppUpdateState.Downloading -> "✦  ${update.version} on its way · ${(update.progress * 100).toInt()}%"
     is AppUpdateState.Ready -> "✦  What's new in ${update.version}"
     is AppUpdateState.Installing -> "✦  Installing ${update.version}…"

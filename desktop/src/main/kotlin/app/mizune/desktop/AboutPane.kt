@@ -67,7 +67,7 @@ fun AboutPane(app: DesktopApp, onRestartToUpdate: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant,
             )
-            if (update is UpdateState.Downloading || update is UpdateState.Ready || update is UpdateState.Available) {
+            if (update !is UpdateState.Unknown && update !is UpdateState.UpToDate) {
                 Row(Modifier.padding(top = 6.dp)) { UpdatePill(app, onRestartToUpdate) }
             }
         }

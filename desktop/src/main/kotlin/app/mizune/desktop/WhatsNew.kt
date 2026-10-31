@@ -52,16 +52,18 @@ import app.mizune.ui.ReleaseNotesText
 import kotlin.reflect.KClass
 
 /**
- * In About, from the moment an update is found: "1.2.0 on its way", filling up as it downloads,
- * then "What's new in 1.2.0", which opens its notes with a way to restart into it (it goes in at
- * the next quit anyway). Where this copy can't update itself it links to the release instead.
+ * In the library's header (unless turned off) and in About, from the moment an update is found:
+ * "1.2.0 on its way", filling up as it downloads, then "What's new in 1.2.0", which opens its notes
+ * with a way to restart into it (it goes in at the next quit anyway). If it waits to be asked for,
+ * "1.2.0 is out" opens its notes with a way to download it. Where this copy can't update itself it
+ * links to the release instead.
  */
 @Composable
-fun UpdatePill(app: DesktopApp, onRestartToUpdate: () -> Unit) {
+fun UpdatePill(app: DesktopApp, onRestartToUpdate: () -> Unit, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
     val update = app.updater.state.collectAsState().value
     if (pillText(update) == null) return
-    Pill(update, progress = (update as? UpdateState.Downloading)?.progress) {
+    Pill(update, progress = (update as? UpdateState.Downloading)?.progress, modifier) {
         when (update) {
             is UpdateState.Available -> openInBrowser(update.page)
             is UpdateState.Ready -> {
@@ -73,6 +75,18 @@ fun UpdatePill(app: DesktopApp, onRestartToUpdate: () -> Unit) {
     }
     if (open) {
         when (update) {
+            is UpdateState.Offered, is UpdateState.Waiting -> WhatsNewDialog(
+                eyebrow = if (update is UpdateState.Waiting) "Waiting for an unmetered connection" else "Out now",
+                version = update.version(),
+                notes = update.notes(),
+                confirm = if (update is UpdateState.Waiting) "Download now" else "Download",
+                onConfirm = {
+                    open = false
+                    app.updater.download()
+                },
+                later = if (update is UpdateState.Waiting) "Wait" else "Not now",
+                onDismiss = { open = false },
+            )
             is UpdateState.Downloading -> WhatsNewDialog(
                 eyebrow = "On its way · ${(update.progress * 100).toInt()}%",
                 version = update.version,
@@ -88,6 +102,7 @@ fun UpdatePill(app: DesktopApp, onRestartToUpdate: () -> Unit) {
                 confirm = "Restart now",
                 onConfirm = onRestartToUpdate,
                 later = "Later",
+                aside = "Installs when you quit, if you'd rather wait",
                 onDismiss = { open = false },
             )
             else -> {}
@@ -95,7 +110,21 @@ fun UpdatePill(app: DesktopApp, onRestartToUpdate: () -> Unit) {
     }
 }
 
+private fun UpdateState.version() = when (this) {
+    is UpdateState.Offered -> version
+    is UpdateState.Waiting -> version
+    else -> ""
+}
+
+private fun UpdateState.notes() = when (this) {
+    is UpdateState.Offered -> notes
+    is UpdateState.Waiting -> notes
+    else -> ""
+}
+
 private fun pillText(update: UpdateState): String? = when (update) {
+    is UpdateState.Offered -> "✦  ${update.version} is out"
+    is UpdateState.Waiting -> "✦  ${update.version} is out"
     is UpdateState.Downloading -> "✦  ${update.version} on its way · ${(update.progress * 100).toInt()}%"
     is UpdateState.Ready -> "✦  What's new in ${update.version}"
     is UpdateState.Available -> "✦  ${update.version} is out"
@@ -126,11 +155,12 @@ fun JustUpdated(app: DesktopApp) {
  * done the fill runs to the end and fades as the words crossfade and the pill resizes to them.
  */
 @Composable
-private fun Pill(update: UpdateState, progress: Float?, onClick: () -> Unit) {
+private fun Pill(update: UpdateState, progress: Float?, modifier: Modifier, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val primary = MaterialTheme.colorScheme.primary
-    val filled by animateFloatAsState(progress ?: 1f, label = "filled")
+    // runs to the end once it's downloaded; starts from nothing when a download begins
+    val filled by animateFloatAsState(progress ?: if (update is UpdateState.Ready) 1f else 0f, label = "filled")
     val fillAlpha by animateFloatAsState(
         if (progress != null) 0.18f else 0f,
         tween(durationMillis = 500, delayMillis = 300),
@@ -148,7 +178,7 @@ private fun Pill(update: UpdateState, progress: Float?, onClick: () -> Unit) {
                 .using(SizeTransform { _, _ -> tween(300, delayMillis = 300) })
         },
         contentAlignment = Alignment.Center,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(primary.copy(alpha = if (hovered) 0.22f else 0.13f))
             .drawBehind { drawRect(primary.copy(alpha = fillAlpha), size = Size(size.width * filled, size.height)) }
@@ -176,6 +206,7 @@ private fun WhatsNewDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     later: String? = null,
+    aside: String? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     Dialog(onDismissRequest = onDismiss) {
@@ -218,9 +249,9 @@ private fun WhatsNewDialog(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (later != null) {
+                if (aside != null) {
                     Text(
-                        "Installs when you quit, if you'd rather wait",
+                        aside,
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 8.dp),

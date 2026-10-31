@@ -71,6 +71,16 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean("tidy_names", true)
         set(value) = prefs.edit { putBoolean("tidy_names", value) }
 
+    /** New versions download by themselves; off, they wait to be asked for (AppUpdater). */
+    var autoUpdate: Boolean
+        get() = prefs.getBoolean("auto_update", true)
+        set(value) = prefs.edit { putBoolean("auto_update", value) }
+
+    /** A new version is shown in the library's header, not only in Settings. */
+    var updatesInHeader: Boolean
+        get() = prefs.getBoolean("updates_in_header", true)
+        set(value) = prefs.edit { putBoolean("updates_in_header", value) }
+
     /** The study panel dragged off screen: the video takes it all, for just watching. */
     var panelHidden: Boolean
         get() = prefs.getBoolean("panel_hidden", false)

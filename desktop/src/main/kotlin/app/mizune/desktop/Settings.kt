@@ -91,6 +91,12 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     /** Show and folder names without release tags, and episodes as "Episode 1" (see [Titles]). */
     var tidyNames by mutableStateOf(prefs.getBoolean("tidy_names", true))
         private set
+    /** New versions download and go in by themselves; off, they wait to be asked for ([Updater]). */
+    var autoUpdate by mutableStateOf(prefs.getBoolean("auto_update", true))
+        private set
+    /** A new version is shown in the library's header, not only in Settings. */
+    var updatesInHeader by mutableStateOf(prefs.getBoolean("updates_in_header", true))
+        private set
     /**
      * The study panel put away (Full): the video takes the window, the line goes over it, and the
      * controls keep out of sight until the pointer reaches an edge.
@@ -188,6 +194,8 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun updateCopyLines(value: Boolean) { copyLines = value; prefs.putBoolean("copy_lines", value) }
     fun updateEpisodeNumbers(value: Boolean) { episodeNumbers = value; prefs.putBoolean("episode_numbers", value) }
     fun updateTidyNames(value: Boolean) { tidyNames = value; prefs.putBoolean("tidy_names", value) }
+    fun updateAutoUpdate(value: Boolean) { autoUpdate = value; prefs.putBoolean("auto_update", value) }
+    fun updateUpdatesInHeader(value: Boolean) { updatesInHeader = value; prefs.putBoolean("updates_in_header", value) }
 
     /** How a file or folder called [name] is shown. */
     fun title(name: String): String = if (tidyNames) Titles.clean(name) else if (isVideoName(name)) name.substringBeforeLast('.') else name

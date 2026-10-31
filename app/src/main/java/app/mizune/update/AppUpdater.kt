@@ -19,13 +19,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.IOException
 
-/** Where an update stands, for the foot of the settings. */
+/** Where an update stands, for the library's header and the foot of the settings. */
 sealed interface AppUpdateState {
     /** Not checked yet, or the last check failed (it's tried again later). */
     data object Unknown : AppUpdateState
     data object UpToDate : AppUpdateState
+    /** Out, and waiting to be asked for: updates don't download by themselves (Prefs.autoUpdate). */
+    data class Offered(val version: String, val notes: String) : AppUpdateState
     /** Out, but held back while the connection is metered; it downloads once it isn't. */
-    data class Waiting(val version: String) : AppUpdateState
+    data class Waiting(val version: String, val notes: String) : AppUpdateState
     /** On its way; [notes] are its release notes. */
     data class Downloading(val version: String, val notes: String, val progress: Float) : AppUpdateState
     /** Downloaded and checked, waiting to go in. [notes] are its release notes. */
@@ -37,7 +39,8 @@ sealed interface AppUpdateState {
  * Keeps the app on the latest release. It checks the feed ([Updates]) at launch and every few
  * hours and downloads a newer APK in the background; Android then checks it carries our signing
  * key before it replaces the app. Nothing is downloaded over a metered connection: the update
- * waits, and is fetched as soon as the phone is on one that isn't.
+ * waits, and is fetched as soon as the phone is on one that isn't. With automatic updates off, a
+ * newer release is only offered, and fetched when asked for ([download]).
  *
  * The first update asks: Android wants "Install unknown apps" allowed for this app, then a tap on
  * its confirmation. That install makes this app its own installer, after which (Android 12 and
@@ -54,12 +57,14 @@ class AppUpdater(private val app: App) {
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
     // notified to check again before the next round is due
     private val wake = Object()
+    // the version asked for by [download], fetched whatever the settings or the connection
+    @Volatile private var asked: String? = null
 
     fun start() {
         connectivity.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
                 val unmetered = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-                if (unmetered && _state.value is AppUpdateState.Waiting) synchronized(wake) { wake.notifyAll() }
+                if (unmetered && _state.value is AppUpdateState.Waiting) checkNow()
             }
         })
         Thread({
@@ -75,6 +80,21 @@ class AppUpdater(private val app: App) {
         }, "updates").apply { isDaemon = true }.start()
     }
 
+    /** Fetches the update on offer, or waiting for an unmetered connection, now. */
+    fun download() {
+        asked = when (val state = _state.value) {
+            is AppUpdateState.Offered -> state.version
+            is AppUpdateState.Waiting -> state.version
+            else -> return
+        }
+        checkNow()
+    }
+
+    /** Checks again without waiting for the next round: the settings changed, say. */
+    fun checkNow() {
+        synchronized(wake) { wake.notifyAll() }
+    }
+
     private fun check() {
         val release = Updates.latest()
         val code = versionCode(release.version)
@@ -86,9 +106,15 @@ class AppUpdater(private val app: App) {
         if (_state.value.let { it is AppUpdateState.Ready && it.version == release.version || it is AppUpdateState.Installing }) return
         val asset = release.assets[PLATFORM] ?: return
         val target = File(dir, asset.name)
-        if (connectivity.isActiveNetworkMetered && !Updates.downloaded(asset, target)) {
-            _state.value = AppUpdateState.Waiting(release.version)
-            return
+        if (asked != release.version && !Updates.downloaded(asset, target)) {
+            if (!app.prefs.autoUpdate) {
+                _state.value = AppUpdateState.Offered(release.version, release.notes)
+                return
+            }
+            if (connectivity.isActiveNetworkMetered) {
+                _state.value = AppUpdateState.Waiting(release.version, release.notes)
+                return
+            }
         }
         _state.value = AppUpdateState.Downloading(release.version, release.notes, 0f)
         val apk = Updates.download(asset, target) { progress ->

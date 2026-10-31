@@ -387,6 +387,7 @@ private fun Browse(
                         app, library.folder,
                         onOpenFolder = { navigate(Screen.Library(it)) },
                         onOpenSettings = { navigate(Screen.Settings(library)) },
+                        onRestartToUpdate = onRestartToUpdate,
                     )
                 },
                 body = {
