@@ -377,7 +377,7 @@ private fun Browse(
                 body = { SettingsBody(app, pane, onRestartToUpdate) },
                 // the panes live in a sidebar that runs the whole height, under the lights
                 leading = {
-                    SettingsSidebar(app, pane, onPane = { pane = it }, onBack = { navigate(library) }, onRestartToUpdate)
+                    SettingsSidebar(app, pane, onPane = { pane = it }, onBack = { navigate(library) })
                 },
             )
         } else {
