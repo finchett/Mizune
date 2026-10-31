@@ -78,6 +78,7 @@ class Updater(
     @Volatile private var asked: String? = null
     // notified to check again before the next round is due
     private val wake = Object()
+    private var checkPending = false
 
     fun start() {
         Runtime.getRuntime().addShutdownHook(Thread(::installStaged, "update-install"))
@@ -92,7 +93,10 @@ class Updater(
                     logError("update check", e)
                     if (_state.value is UpdateState.Downloading) _state.value = UpdateState.Unknown
                 }
-                synchronized(wake) { wake.wait(CHECK_EVERY_MS) }
+                synchronized(wake) {
+                    if (!checkPending) wake.wait(CHECK_EVERY_MS)
+                    checkPending = false
+                }
             }
         }, "updates").apply { isDaemon = true }.start()
     }
@@ -112,7 +116,10 @@ class Updater(
 
     /** Checks again without waiting for the next round: the settings changed, say. */
     fun checkNow() {
-        synchronized(wake) { wake.notifyAll() }
+        synchronized(wake) {
+            checkPending = true
+            wake.notifyAll()
+        }
     }
 
     /** Quits so the update goes in, and opens the new version once it has. */
@@ -150,12 +157,19 @@ class Updater(
             }
         }
         _state.value = UpdateState.Downloading(release.version, release.notes, 0f)
-        val dmg = Updates.download(asset, target) { progress ->
+        val dmg = try { Updates.download(asset, target, mayDownload = {
+            asked == release.version || !MacNetwork.metered
+        }) { progress ->
             // a step per percent, not per block read
             val shown = (progress * 100).toInt() / 100f
             if ((_state.value as? UpdateState.Downloading)?.progress != shown) {
                 _state.value = UpdateState.Downloading(release.version, release.notes, shown)
             }
+        }
+        } catch (_: Updates.DownloadDeferred) {
+            _state.value = UpdateState.Waiting(release.version, release.notes)
+            if (!MacNetwork.metered) checkNow()
+            return
         }
         stage(dmg, release)
         dmg.delete()

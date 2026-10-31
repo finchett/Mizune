@@ -57,6 +57,7 @@ class AppUpdater(private val app: App) {
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
     // notified to check again before the next round is due
     private val wake = Object()
+    private var checkPending = false
     // the version asked for by [download], fetched whatever the settings or the connection
     @Volatile private var asked: String? = null
 
@@ -75,7 +76,10 @@ class AppUpdater(private val app: App) {
                     app.logError("update check", e)
                     if (_state.value is AppUpdateState.Downloading) _state.value = AppUpdateState.Unknown
                 }
-                synchronized(wake) { wake.wait(CHECK_EVERY_MS) }
+                synchronized(wake) {
+                    if (!checkPending) wake.wait(CHECK_EVERY_MS)
+                    checkPending = false
+                }
             }
         }, "updates").apply { isDaemon = true }.start()
     }
@@ -92,7 +96,10 @@ class AppUpdater(private val app: App) {
 
     /** Checks again without waiting for the next round: the settings changed, say. */
     fun checkNow() {
-        synchronized(wake) { wake.notifyAll() }
+        synchronized(wake) {
+            checkPending = true
+            wake.notifyAll()
+        }
     }
 
     private fun check() {
@@ -117,12 +124,19 @@ class AppUpdater(private val app: App) {
             }
         }
         _state.value = AppUpdateState.Downloading(release.version, release.notes, 0f)
-        val apk = Updates.download(asset, target) { progress ->
+        val apk = try { Updates.download(asset, target, mayDownload = {
+            asked == release.version || !connectivity.isActiveNetworkMetered
+        }) { progress ->
             // a step per percent, not per block read
             val shown = (progress * 100).toInt() / 100f
             if ((_state.value as? AppUpdateState.Downloading)?.progress != shown) {
                 _state.value = AppUpdateState.Downloading(release.version, release.notes, shown)
             }
+        }
+        } catch (_: Updates.DownloadDeferred) {
+            _state.value = AppUpdateState.Waiting(release.version, release.notes)
+            if (!connectivity.isActiveNetworkMetered) checkNow()
+            return
         }
         val info = app.packageManager.getPackageArchiveInfo(apk.path, 0)
         if (info?.packageName != app.packageName || info.longVersionCode != code.toLong()) {

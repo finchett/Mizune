@@ -52,4 +52,36 @@ class UpdatesTest {
         assertEquals(file, Updates.download(asset, file))
         dir.deleteRecursively()
     }
+    @Test
+    fun defersAnActiveDownloadAndCanRetry() {
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val bytes = ByteArray(200_000) { 42 }
+        server.createContext("/asset") { exchange ->
+            try {
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            } finally { exchange.close() }
+        }
+        server.start()
+        val dir = Files.createTempDirectory("update-defer").toFile()
+        try {
+            val expected = File(dir, "expected").apply { writeBytes(bytes) }
+            val asset = UpdateAsset(name = "download",
+                url = "http://127.0.0.1:${server.address.port}/asset",
+                size = bytes.size.toLong(), sha256 = Updates.sha256(expected),
+            )
+            val target = File(dir, "download")
+            var allowed = true
+            org.junit.Assert.assertThrows(Updates.DownloadDeferred::class.java) {
+                Updates.download(asset, target, mayDownload = { allowed }) { allowed = false }
+            }
+            assertFalse(target.exists())
+            assertTrue(File(target.path + ".part").length() < bytes.size)
+            Updates.download(asset, target)
+            assertTrue(Updates.downloaded(asset, target))
+        } finally {
+            server.stop(0)
+            dir.deleteRecursively()
+        }
+    }
 }
