@@ -1,5 +1,6 @@
 package app.mizune.desktop
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -131,7 +132,6 @@ fun SettingsSidebar(
     pane: SettingsPane,
     onPane: (SettingsPane) -> Unit,
     onBack: () -> Unit,
-    onRestartToUpdate: () -> Unit = {},
 ) {
     val update by app.updater.state.collectAsState()
     Row(Modifier.width(SidebarWidth).fillMaxHeight()) {
@@ -180,28 +180,50 @@ fun SettingsSidebar(
             ) {
                 // the app icon carries its own margin, so 40 dp draws a 32 dp tile
                 Image(painterResource("icon.png"), contentDescription = null, modifier = Modifier.size(40.dp))
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text("Mizune", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Text(
                         "Version $APP_VERSION" + if (update == UpdateState.UpToDate) " · latest" else "",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    (update as? UpdateState.Waiting)?.let {
-                        Text(
-                            "${it.version} waits for an unmetered connection",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    UpdateLine(update)
                 }
-            }
-            if (update is UpdateState.Downloading || update is UpdateState.Ready || update is UpdateState.Available) {
-                // in line with the edge of the row above, so the longest pill still fits
-                Box(Modifier.padding(start = 6.dp, end = 6.dp, bottom = 14.dp)) { UpdatePill(app, onRestartToUpdate) }
             }
         }
         VerticalDivider(color = MaterialTheme.colorScheme.hairline)
+    }
+}
+
+/**
+ * Under the version at the foot of the sidebar: an update on its way, with a bar that fills as
+ * it downloads, or one that's ready. Its notes and the way to install it are in About.
+ */
+@Composable
+private fun UpdateLine(update: UpdateState) {
+    val text = when (update) {
+        is UpdateState.Waiting -> "${update.version} waits for an unmetered connection"
+        is UpdateState.Downloading -> "${update.version} on its way · ${(update.progress * 100).toInt()}%"
+        is UpdateState.Ready -> "${update.version} is ready to install"
+        is UpdateState.Available -> "${update.version} is out"
+        else -> return
+    }
+    val lit = update is UpdateState.Ready || update is UpdateState.Available
+    Text(
+        text,
+        fontSize = 12.sp,
+        fontWeight = if (lit) FontWeight.Medium else null,
+        color = if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (update is UpdateState.Downloading) {
+        val filled by animateFloatAsState(update.progress, label = "filled")
+        Box(
+            Modifier.padding(top = 5.dp, bottom = 2.dp).fillMaxWidth().height(3.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        ) {
+            Box(Modifier.fillMaxWidth(filled).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+        }
     }
 }
 

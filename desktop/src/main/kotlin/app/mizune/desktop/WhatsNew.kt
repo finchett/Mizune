@@ -52,10 +52,9 @@ import app.mizune.ui.ReleaseNotesText
 import kotlin.reflect.KClass
 
 /**
- * In Settings, under the app's name and in About, from the moment an update is found: "1.2.0 on
- * its way", filling up as it downloads, then "What's new in 1.2.0", which opens its notes with a
- * way to restart into it (it goes in at the next quit anyway). Where this copy can't update itself
- * it links to the release instead.
+ * In About, from the moment an update is found: "1.2.0 on its way", filling up as it downloads,
+ * then "What's new in 1.2.0", which opens its notes with a way to restart into it (it goes in at
+ * the next quit anyway). Where this copy can't update itself it links to the release instead.
  */
 @Composable
 fun UpdatePill(app: DesktopApp, onRestartToUpdate: () -> Unit) {
