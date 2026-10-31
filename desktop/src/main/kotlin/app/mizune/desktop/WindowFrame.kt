@@ -59,22 +59,22 @@ class WindowFrame(val window: Window, val state: WindowState) {
     fun minimize() { state.isMinimized = true }
 
     fun toggleMaximized() {
-        if (maximized) {
-            state.placement = WindowPlacement.Floating
-        } else {
-            // a frameless window maximises over the taskbar unless told the screen's work area,
-            // which Windows wants relative to the screen it's on
-            if (isWindows) {
-                val config = window.graphicsConfiguration
-                val screen = config.bounds
-                val insets = Toolkit.getDefaultToolkit().getScreenInsets(config)
-                (window as? java.awt.Frame)?.maximizedBounds = Rectangle(
-                    insets.left, insets.top,
-                    screen.width - insets.left - insets.right, screen.height - insets.top - insets.bottom,
-                )
-            }
-            state.placement = WindowPlacement.Maximized
+        if (maximized) state.placement = WindowPlacement.Floating else maximize()
+    }
+
+    fun maximize() {
+        // a frameless window maximises over the taskbar unless told the screen's work area,
+        // which Windows wants relative to the screen it's on
+        if (isWindows) {
+            val config = window.graphicsConfiguration
+            val screen = config.bounds
+            val insets = Toolkit.getDefaultToolkit().getScreenInsets(config)
+            (window as? java.awt.Frame)?.maximizedBounds = Rectangle(
+                insets.left, insets.top,
+                screen.width - insets.left - insets.right, screen.height - insets.top - insets.bottom,
+            )
         }
+        state.placement = WindowPlacement.Maximized
     }
 }
 

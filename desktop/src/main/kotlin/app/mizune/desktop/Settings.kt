@@ -234,6 +234,10 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         if (value.isDefault) prefs.remove("key_map") else prefs.put("key_map", value.toJson())
     }
 
+    /** Where the window was last left (WindowPlace); none before it's first opened. */
+    fun windowPlace(): WindowPlace? = prefs.get("window_place", null)?.let(WindowPlace::decode)
+    fun saveWindowPlace(place: WindowPlace) = prefs.put("window_place", place.encode())
+
     fun isBundledInstalled(name: String) = prefs.getBoolean("bundled:$name", false)
     fun setBundledInstalled(name: String) = prefs.putBoolean("bundled:$name", true)
 
