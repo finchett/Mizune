@@ -213,6 +213,9 @@ private val HIDDEN_EDGE_INSET = 20.dp
 /** How long the grip shows, put away, where the panel can be pulled back from. */
 private const val GRIP_SHOWN_MS = 1500L
 
+/** How long it shows for a video opened (or turned sideways) with the panel already away. */
+private const val GRIP_SHOWN_OPENING_MS = 400L
+
 /**
  * Drags from anywhere along the video/panel edge move it: a finger put down within half of
  * [zoneWidth] of [edge] (where the edge is, across it) and moved across. Watched ahead of
@@ -532,10 +535,13 @@ fun PlayerScreen(
                 val screenColor = if (rounded) MaterialTheme.colorScheme.background else Color.Black
                 // put away, the panel shows for a moment where it can be pulled back from
                 var showGrip by remember { mutableStateOf(false) }
+                var opening by remember { mutableStateOf(true) }
                 LaunchedEffect(panelHidden) {
+                    val shown = if (opening) GRIP_SHOWN_OPENING_MS else GRIP_SHOWN_MS
+                    opening = false
                     showGrip = panelHidden
                     if (panelHidden) {
-                        delay(GRIP_SHOWN_MS)
+                        delay(shown)
                         showGrip = false
                     }
                 }
