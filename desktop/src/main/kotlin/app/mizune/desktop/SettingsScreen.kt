@@ -4,7 +4,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
@@ -73,7 +72,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -179,7 +177,7 @@ fun SettingsSidebar(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 // the app icon carries its own margin, so 40 dp draws a 32 dp tile
-                Image(painterResource("icon.png"), contentDescription = null, modifier = Modifier.size(40.dp))
+                AppIcon(40.dp)
                 Column {
                     Text("Mizune", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Text(

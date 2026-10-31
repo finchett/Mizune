@@ -15,7 +15,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,7 +65,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -513,11 +511,7 @@ private fun Mascot(size: androidx.compose.ui.unit.Dp) {
         animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
         label = "bob",
     )
-    Image(
-        painterResource("icon.png"),
-        contentDescription = null,
-        modifier = Modifier.size(size).offset(y = (sin(bob * 2 * PI) * 5).dp),
-    )
+    AppIcon(size, Modifier.offset(y = (sin(bob * 2 * PI) * 5).dp))
 }
 
 /** A burst of paper confetti in the theme's colours, falling once. */
