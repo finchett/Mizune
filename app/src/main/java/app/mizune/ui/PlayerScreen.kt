@@ -204,20 +204,27 @@ private const val HIDE_PANEL_BELOW = MIN_PANEL_FRACTION / 2
 
 private val RESIZE_ZONE_WIDTH = 40.dp
 
+/** Held sideways, the zone is wider, so putting the panel away doesn't take aim. */
+private val SIDE_ZONE_WIDTH = 96.dp
+
+/** With the panel off screen, how far in from the screen's edge its edge is kept. */
+private val HIDDEN_EDGE_INSET = 20.dp
+
 /**
  * Drags from anywhere along the video/panel edge move it: a finger put down within half of
- * [RESIZE_ZONE_WIDTH] of [edge] (where the edge is, across it) and moved across. Watched ahead of
+ * [zoneWidth] of [edge] (where the edge is, across it) and moved across. Watched ahead of
  * what's under it, which still gets taps, holds and drags along the edge.
  */
 private fun Modifier.edgeDrag(
     vertical: Boolean,
+    zoneWidth: Dp,
     edge: () -> Float,
     onTouch: (Boolean) -> Unit,
     onDragging: (Boolean) -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
-) = pointerInput(vertical) {
-    val zone = RESIZE_ZONE_WIDTH.toPx()
+) = pointerInput(vertical, zoneWidth) {
+    val zone = zoneWidth.toPx()
     val slop = viewConfiguration.touchSlop
     fun across(offset: Offset) = if (vertical) offset.y else offset.x
     fun along(offset: Offset) = if (vertical) offset.x else offset.y
@@ -548,18 +555,21 @@ fun PlayerScreen(
             }
             if (landscape) {
                 val totalWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
-                val zonePx = with(LocalDensity.current) { RESIZE_ZONE_WIDTH.toPx() }
+                val zonePx = with(LocalDensity.current) { SIDE_ZONE_WIDTH.toPx() }
+                val insetPx = with(LocalDensity.current) { HIDDEN_EDGE_INSET.toPx() }
                 val videoEndGap by animateDpAsState(if (panelHidden) gap else gap / 2, tween(220), label = "video end gap")
                 val screenColor = if (rounded) MaterialTheme.colorScheme.background else Color.Black
                 var edgeTouched by remember { mutableStateOf(false) }
                 var edgeDragging by remember { mutableStateOf(false) }
-                // with the panel off screen the edge is kept a little in from the screen's
-                fun edgeX() = (totalWidthPx * (1f - panelFraction.floatValue)).coerceAtMost(totalWidthPx - zonePx / 2)
+                // with the panel off screen the edge is kept a little in from the screen's, its zone
+                // running off it
+                fun edgeX() = (totalWidthPx * (1f - panelFraction.floatValue)).coerceAtMost(totalWidthPx - insetPx)
                 Box(
                     Modifier
                         .fillMaxSize()
                         .edgeDrag(
                             vertical = false,
+                            zoneWidth = SIDE_ZONE_WIDTH,
                             edge = ::edgeX,
                             onTouch = { edgeTouched = it },
                             onDragging = { edgeDragging = it },
@@ -613,7 +623,7 @@ fun PlayerScreen(
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .offset { IntOffset((edgeX() - zonePx / 2).roundToInt(), 0) }
-                            .width(RESIZE_ZONE_WIDTH)
+                            .width(SIDE_ZONE_WIDTH)
                             .height(140.dp)
                             .systemGestureExclusion(),
                     )
@@ -628,6 +638,7 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .edgeDrag(
                             vertical = true,
+                            zoneWidth = RESIZE_ZONE_WIDTH,
                             edge = { totalHeightPx * videoFraction.floatValue },
                             onTouch = { edgeTouched = it },
                             onDragging = { edgeDragging = it },
