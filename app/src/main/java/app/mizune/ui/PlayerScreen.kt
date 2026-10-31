@@ -210,6 +210,9 @@ private val SIDE_ZONE_WIDTH = 96.dp
 /** With the panel off screen, how far in from the screen's edge its edge is kept. */
 private val HIDDEN_EDGE_INSET = 20.dp
 
+/** How long the grip shows, put away, where the panel can be pulled back from. */
+private const val GRIP_SHOWN_MS = 1500L
+
 /**
  * Drags from anywhere along the video/panel edge move it: a finger put down within half of
  * [zoneWidth] of [edge] (where the edge is, across it) and moved across. Watched ahead of
@@ -219,8 +222,6 @@ private fun Modifier.edgeDrag(
     vertical: Boolean,
     zoneWidth: Dp,
     edge: () -> Float,
-    onTouch: (Boolean) -> Unit,
-    onDragging: (Boolean) -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
 ) = pointerInput(vertical, zoneWidth) {
@@ -231,7 +232,6 @@ private fun Modifier.edgeDrag(
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         if (abs(across(down.position) - edge()) > zone / 2) return@awaitEachGesture
-        onTouch(true)
         var dragging = false
         try {
             while (true) {
@@ -249,54 +249,25 @@ private fun Modifier.edgeDrag(
                 if (abs(along(moved)) > slop) break
                 if (abs(across(moved)) > slop) {
                     dragging = true
-                    onDragging(true)
                     onDrag(across(moved) - sign(across(moved)) * slop)
                     change.consume()
                 }
             }
         } finally {
-            onTouch(false)
-            if (dragging) {
-                onDragging(false)
-                onDragEnd()
-            }
+            if (dragging) onDragEnd()
         }
     }
 }
 
 /**
- * The grip on the video/panel edge (see [edgeDrag]): it appears while the edge is [touched], and
- * faintly while [hint] (where to drag the panel back from, with it off screen).
+ * A grip where the panel can be pulled back from, with it off screen (see [edgeDrag]), shown
+ * while [visible]; nothing is drawn on the edge otherwise.
  */
 @Composable
-private fun ResizeHandle(
-    touched: Boolean,
-    dragging: Boolean,
-    modifier: Modifier,
-    vertical: Boolean = false,
-    hint: Boolean = false,
-) {
+private fun PanelGrip(visible: Boolean, modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
-        val active = touched || dragging
-        val length by animateDpAsState(if (active) 48.dp else 28.dp, label = "grip length")
-        val thickness by animateDpAsState(if (active) 5.dp else 4.dp, label = "grip thickness")
-        AnimatedVisibility(visible = active || hint, enter = fadeIn(), exit = fadeOut()) {
-            Box(
-                Modifier
-                    // sideways, right of the gap's middle: the panel is often the gap's colour, and
-                    // centred the grip looks stuck to the video
-                    .offset(x = if (vertical) 0.dp else 4.dp)
-                    .width(if (vertical) length else thickness)
-                    .height(if (vertical) thickness else length)
-                    .background(
-                        when {
-                            dragging -> MaterialTheme.colorScheme.primary
-                            touched -> Color(0xFF8A8E95)
-                            else -> Color(0x998A8E95)
-                        },
-                        RoundedCornerShape(3.dp),
-                    ),
-            )
+        AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
+            Box(Modifier.width(4.dp).height(28.dp).background(Color(0x998A8E95), RoundedCornerShape(3.dp)))
         }
     }
 }
@@ -559,8 +530,15 @@ fun PlayerScreen(
                 val insetPx = with(LocalDensity.current) { HIDDEN_EDGE_INSET.toPx() }
                 val videoEndGap by animateDpAsState(if (panelHidden) gap else gap / 2, tween(220), label = "video end gap")
                 val screenColor = if (rounded) MaterialTheme.colorScheme.background else Color.Black
-                var edgeTouched by remember { mutableStateOf(false) }
-                var edgeDragging by remember { mutableStateOf(false) }
+                // put away, the panel shows for a moment where it can be pulled back from
+                var showGrip by remember { mutableStateOf(false) }
+                LaunchedEffect(panelHidden) {
+                    showGrip = panelHidden
+                    if (panelHidden) {
+                        delay(GRIP_SHOWN_MS)
+                        showGrip = false
+                    }
+                }
                 // with the panel off screen the edge is kept a little in from the screen's, its zone
                 // running off it
                 fun edgeX() = (totalWidthPx * (1f - panelFraction.floatValue)).coerceAtMost(totalWidthPx - insetPx)
@@ -571,8 +549,6 @@ fun PlayerScreen(
                             vertical = false,
                             zoneWidth = SIDE_ZONE_WIDTH,
                             edge = ::edgeX,
-                            onTouch = { edgeTouched = it },
-                            onDragging = { edgeDragging = it },
                             onDrag = { dx ->
                                 panelFraction.floatValue = (panelFraction.floatValue - dx / totalWidthPx)
                                     .coerceIn(0f, MAX_PANEL_FRACTION)
@@ -614,12 +590,10 @@ fun PlayerScreen(
                             panel?.place(videoWidth, 0)
                         }
                     }
-                    // the grip, mid-height on the edge; takes no layout space. With the panel off screen
-                    // it's at the screen's edge, and there it's kept from the back swipe.
-                    ResizeHandle(
-                        touched = edgeTouched,
-                        dragging = edgeDragging,
-                        hint = panelHidden && paused,
+                    // mid-height on the edge, taking no layout space: the grip, and with the panel off
+                    // screen, the part of the zone kept from the back swipe
+                    PanelGrip(
+                        visible = showGrip,
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .offset { IntOffset((edgeX() - zonePx / 2).roundToInt(), 0) }
@@ -630,9 +604,6 @@ fun PlayerScreen(
                 }
             } else {
                 val totalHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
-                val zonePx = with(LocalDensity.current) { RESIZE_ZONE_WIDTH.toPx() }
-                var edgeTouched by remember { mutableStateOf(false) }
-                var edgeDragging by remember { mutableStateOf(false) }
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -640,8 +611,6 @@ fun PlayerScreen(
                             vertical = true,
                             zoneWidth = RESIZE_ZONE_WIDTH,
                             edge = { totalHeightPx * videoFraction.floatValue },
-                            onTouch = { edgeTouched = it },
-                            onDragging = { edgeDragging = it },
                             onDrag = { dy ->
                                 videoFraction.floatValue = (videoFraction.floatValue + dy / totalHeightPx)
                                     .coerceIn(MIN_VIDEO_FRACTION, MAX_VIDEO_FRACTION)
@@ -666,17 +635,6 @@ fun PlayerScreen(
                             panel.place(0, videoHeight)
                         }
                     }
-                    // the grip, on the boundary in the middle of the width
-                    ResizeHandle(
-                        touched = edgeTouched,
-                        dragging = edgeDragging,
-                        vertical = true,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .offset { IntOffset(0, (totalHeightPx * videoFraction.floatValue - zonePx / 2).roundToInt()) }
-                            .height(RESIZE_ZONE_WIDTH)
-                            .width(160.dp),
-                    )
                 }
             }
         }
