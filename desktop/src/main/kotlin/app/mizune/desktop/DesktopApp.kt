@@ -38,7 +38,7 @@ class DesktopApp(
         logError = ::logError,
     )
     /** Started by main, so tests never touch the feed. */
-    val updater = Updater(cacheDir, dataDir, ::logError)
+    val updater = Updater(cacheDir, dataDir, automatic = { settings.autoUpdate }, logError = ::logError)
     private val usageStats = UsageStats(ANALYTICS_MEASUREMENT_ID, ANALYTICS_API_SECRET)
 
     /**

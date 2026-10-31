@@ -196,8 +196,8 @@ fun SettingsSidebar(
 }
 
 /**
- * Under the version at the foot of the sidebar: an update on its way, with a bar that fills as
- * it downloads, or one that's ready. Its notes and the way to install it are in About.
+ * Under the version at the foot of the sidebar: an update that's out, on its way (with a bar that
+ * fills as it downloads) or ready. Its notes and the way to get it or install it are in About.
  */
 @Composable
 private fun UpdateLine(update: UpdateState) {
@@ -205,10 +205,11 @@ private fun UpdateLine(update: UpdateState) {
         is UpdateState.Waiting -> "${update.version} waits for an unmetered connection"
         is UpdateState.Downloading -> "${update.version} on its way · ${(update.progress * 100).toInt()}%"
         is UpdateState.Ready -> "${update.version} is ready to install"
+        is UpdateState.Offered -> "${update.version} is out"
         is UpdateState.Available -> "${update.version} is out"
         else -> return
     }
-    val lit = update is UpdateState.Ready || update is UpdateState.Available
+    val lit = update is UpdateState.Ready || update is UpdateState.Offered || update is UpdateState.Available
     Text(
         text,
         fontSize = 12.sp,
@@ -321,6 +322,26 @@ private fun GeneralPane(app: DesktopApp) {
             ) {
                 LanguageSelect(settings.peekLanguage, allowNone = true, onSelect = settings::updatePeekLanguage)
             }
+        }
+    }
+    Section("Updates") {
+        Card {
+            if (app.updater.updatesItself) {
+                ToggleRow(
+                    "Update automatically",
+                    "Downloads new versions in the background, over connections that aren't metered, and puts them in when you quit",
+                    settings.autoUpdate,
+                ) {
+                    settings.updateAutoUpdate(it)
+                    app.updater.checkNow()
+                }
+                RowDivider()
+            }
+            ToggleRow(
+                "Show updates in the header",
+                "A new version shows at the top of the library, as well as here",
+                settings.updatesInHeader, settings::updateUpdatesInHeader,
+            )
         }
     }
     Section("Privacy") {

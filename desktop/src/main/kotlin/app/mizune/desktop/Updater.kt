@@ -15,8 +15,10 @@ sealed interface UpdateState {
     /** Not checked yet, or the last check failed (it's tried again later). */
     data object Unknown : UpdateState
     data object UpToDate : UpdateState
+    /** Out, and waiting to be asked for: updates don't download by themselves ([Settings.autoUpdate]). */
+    data class Offered(val version: String, val notes: String) : UpdateState
     /** Out, but held back while the connection is metered; it downloads once it isn't ([MacNetwork]). */
-    data class Waiting(val version: String) : UpdateState
+    data class Waiting(val version: String, val notes: String) : UpdateState
     /** On its way; [notes] are its release notes. */
     data class Downloading(val version: String, val notes: String, val progress: Float) : UpdateState
     /** Downloaded and checked; it replaces this app when the app quits. [notes] are its release notes. */
@@ -30,12 +32,18 @@ sealed interface UpdateState {
  * hours, downloads a newer .dmg in the background and copies the app out of it, then swaps that
  * copy in for the running one whenever the app quits, however it quits. "Restart to update" just
  * quits and opens it again. Nothing is downloaded over a metered connection: the update waits,
- * and is fetched as soon as the connection changes to one that isn't.
+ * and is fetched as soon as the connection changes to one that isn't. With [automatic] off, a
+ * newer release is only offered, and fetched when asked for ([download]).
  *
  * Only a packaged macOS app in a folder it may write to replaces itself; anywhere else a newer
  * release is offered as a link instead.
  */
-class Updater(cacheDir: File, dataDir: File, private val logError: (String, Throwable) -> Unit) {
+class Updater(
+    cacheDir: File,
+    dataDir: File,
+    private val automatic: () -> Boolean,
+    private val logError: (String, Throwable) -> Unit,
+) {
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Unknown)
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
@@ -66,13 +74,15 @@ class Updater(cacheDir: File, dataDir: File, private val logError: (String, Thro
     private val feed = System.getProperty("mizune.updateFeed") ?: Updates.FEED
     private val bundle: File? = runningBundle()
     @Volatile private var relaunch = false
+    // the version asked for by [download], fetched whatever the settings or the connection
+    @Volatile private var asked: String? = null
     // notified to check again before the next round is due
     private val wake = Object()
 
     fun start() {
         Runtime.getRuntime().addShutdownHook(Thread(::installStaged, "update-install"))
         MacNetwork.start { metered ->
-            if (!metered && _state.value is UpdateState.Waiting) synchronized(wake) { wake.notifyAll() }
+            if (!metered && _state.value is UpdateState.Waiting) checkNow()
         }
         Thread({
             while (true) {
@@ -85,6 +95,24 @@ class Updater(cacheDir: File, dataDir: File, private val logError: (String, Thro
                 synchronized(wake) { wake.wait(CHECK_EVERY_MS) }
             }
         }, "updates").apply { isDaemon = true }.start()
+    }
+
+    /** This copy can download and put in its own updates; elsewhere it only links to them. */
+    val updatesItself: Boolean get() = bundle != null
+
+    /** Fetches the update on offer, or waiting for an unmetered connection, now. */
+    fun download() {
+        asked = when (val state = _state.value) {
+            is UpdateState.Offered -> state.version
+            is UpdateState.Waiting -> state.version
+            else -> return
+        }
+        checkNow()
+    }
+
+    /** Checks again without waiting for the next round: the settings changed, say. */
+    fun checkNow() {
+        synchronized(wake) { wake.notifyAll() }
     }
 
     /** Quits so the update goes in, and opens the new version once it has. */
@@ -111,9 +139,15 @@ class Updater(cacheDir: File, dataDir: File, private val logError: (String, Thro
             return
         }
         val target = File(dir, asset.name)
-        if (MacNetwork.metered && !Updates.downloaded(asset, target)) {
-            _state.value = UpdateState.Waiting(release.version)
-            return
+        if (asked != release.version && !Updates.downloaded(asset, target)) {
+            if (!automatic()) {
+                _state.value = UpdateState.Offered(release.version, release.notes)
+                return
+            }
+            if (MacNetwork.metered) {
+                _state.value = UpdateState.Waiting(release.version, release.notes)
+                return
+            }
         }
         _state.value = UpdateState.Downloading(release.version, release.notes, 0f)
         val dmg = Updates.download(asset, target) { progress ->
