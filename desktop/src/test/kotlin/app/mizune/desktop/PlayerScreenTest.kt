@@ -317,6 +317,20 @@ class PlayerScreenTest {
                 assertFalse(app.settings.muted)
                 waitUntil(timeoutMillis = 5_000) { volume() == 25 && mute() == "no" }
 
+                // a drag sets the volume as it goes, not only once it's let go
+                onNodeWithContentDescription("Volume").performMouseInput {
+                    moveTo(Offset(width * 0.25f, height / 2f))
+                    press()
+                    moveTo(Offset(width * 0.6f, height / 2f))
+                }
+                assertEquals(60, app.settings.volume)
+                waitUntil(timeoutMillis = 1_000) { volume() == 60 }
+                onNodeWithContentDescription("Volume").performMouseInput {
+                    moveTo(Offset(width * 0.25f, height / 2f))
+                    release()
+                }
+                assertEquals(25, app.settings.volume)
+
                 onNodeWithContentDescription("Volume").performMouseInput { scroll(-1f) }
                 assertEquals(30, app.settings.volume)
                 waitUntil(timeoutMillis = 5_000) { volume() == 30 }
