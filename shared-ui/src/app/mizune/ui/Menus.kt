@@ -107,10 +107,15 @@ fun MenuDisclosure(title: String, open: Boolean, onClick: () -> Unit) {
 
 /** Two or three choices side by side, as one control, for a setting that's one of a few. */
 @Composable
-fun MenuSegments(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+fun MenuSegments(
+    options: List<String>,
+    selected: Int,
+    modifier: Modifier = Modifier.padding(horizontal = 4.dp),
+    onSelect: (Int) -> Unit,
+) {
     val scheme = MaterialTheme.colorScheme
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(LocalMenuRowHeight.current)
+        modifier.fillMaxWidth().height(LocalMenuRowHeight.current)
             .clip(RoundedCornerShape(8.dp))
             .background(scheme.onSurface.copy(alpha = 0.06f))
             .padding(3.dp),

@@ -758,7 +758,7 @@ private fun ShaderMenu(app: DesktopApp, session: PlayerSession, onMenu: (Boolean
         PlayerMenu(expanded = open, onDismiss = { show(false) }, width = 260.dp) {
             @Composable
             fun item(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) =
-                MenuChoice(title, selected, detail) { onClick(); show(false) }
+                MenuChoice(title, selected, detail, onClick)
             MenuGroup("Anime4K", first = true)
             if (!session.player.runsShaders) MenuNote("Needs OpenGL, which isn't available here")
             Anime4K.Preset.entries.forEach { preset ->
@@ -936,14 +936,14 @@ private fun TrackMenu(
             color = color,
             hoverColor = hoverColor,
         ) { Cog(it) }
+        // choosing keeps it up, so the change shows behind it and another can follow
         PlayerMenu(expanded = open, onDismiss = { show(false) }) {
             @Composable
             fun item(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) =
-                MenuChoice(title, selected, detail) { onClick(); show(false) }
+                MenuChoice(title, selected, detail, onClick)
             MenuGroup("Picture", note = "Z", first = true)
             MenuSegments(listOf("Whole picture", "Fill the area"), if (settings.videoFill) 1 else 0) {
                 settings.updateVideoFill(it == 1)
-                show(false)
             }
             if (audioTracks.isNotEmpty()) {
                 MenuGroup("Audio")

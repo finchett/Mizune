@@ -36,5 +36,7 @@ class TrackNamesTest {
         assertEquals("Japanese", bare.name)
         assertNull(bare.detail)
         assertEquals("Track 4", AudioTrack(4, null, null, null).name)
+        val bracketed = AudioTrack(5, "jpn", "(AAC 2.0) [Studio]", "aac")
+        assertEquals("AAC 2.0 · Studio", bracketed.detail)
     }
 }

@@ -15,18 +15,26 @@ data class AudioTrack(val id: Int, val language: String?, val title: String?, va
 
     /**
      * What else tells it apart, beside [name]: its title without the language it starts with
-     * ("Japanese: Stereo" gives "Stereo"), then its codec in capitals. Null when there's nothing.
+     * ("Japanese: Stereo" gives "Stereo") and with its brackets made separators ("(AAC 2.0)
+     * [Studio]" gives "AAC 2.0 · Studio"), then its codec in capitals unless the title has it.
+     * Null when there's nothing.
      */
     val detail: String?
         get() {
             val rest = title?.let { title -> languageName?.let { withoutLead(title, it) } ?: title }?.takeUnless { it == name }
-            return listOfNotNull(rest, codec?.uppercase()).distinct().joinToString(" · ").ifEmpty { null }
+            val pieces = rest?.let { PIECES.findAll(it).map { piece -> piece.value.trim(' ', '(', ')', '[', ']') } }
+                ?.filter { it.isNotEmpty() }?.toList().orEmpty()
+            val codec = codec?.uppercase()?.takeUnless { codec -> pieces.any { it.contains(codec, ignoreCase = true) } }
+            return (pieces + listOfNotNull(codec)).distinct().joinToString(" · ").ifEmpty { null }
         }
 
     private val languageName: String?
         get() = language?.let { tag -> SubtitleFiles.codeForTag(tag)?.let(SubtitleFiles::language)?.name ?: tag }
 
     companion object {
+        /** A title's bracketed parts, and the plain text between them. */
+        private val PIECES = Regex("""\([^)]*\)|\[[^\]]*]|[^()\[\]]+""")
+
         /** [text] without [lead] at its start, and the punctuation after it; null if that's all there is. */
         internal fun withoutLead(text: String, lead: String): String? {
             if (!text.startsWith(lead, ignoreCase = true)) return text

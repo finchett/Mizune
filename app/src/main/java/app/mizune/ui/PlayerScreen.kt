@@ -1626,95 +1626,35 @@ private fun PlayerOptions(session: PlayerSession, onDismiss: () -> Unit) {
     val autoPause by session.autoPause.collectAsState()
     val landscapeLock by session.landscapeLock.collectAsState()
 
-    // the desktop's menu, in the same groups, with rows a finger can hit
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(0.92f),
+            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.92f),
         ) {
-            CompositionLocalProvider(LocalMenuRowHeight provides 44.dp) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Options",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f).padding(start = 10.dp),
-                        )
-                        TextButton(onClick = onDismiss) { Text("Done") }
-                    }
-                    MenuGroup("Picture", first = true)
-                    MenuSegments(listOf("Whole picture", "Fill the area"), if (fill) 1 else 0) { session.setFill(it == 1) }
-                    if (audioTracks.isNotEmpty()) {
-                        MenuGroup("Audio")
-                        audioTracks.forEach { track ->
-                            MenuChoice(track.name, track.id == audioTrack, track.detail) { session.selectAudio(track) }
-                        }
-                    }
-                    if (tracks.isEmpty()) {
-                        MenuGroup("Subtitles to study")
-                        MenuNote("No text subtitle tracks in this video.")
-                    } else {
-                        MenuGroup("Subtitles to study")
-                        tracks.forEach { track ->
-                            MenuChoice(track.shortName, track === primary, track.detail) { session.selectPrimary(track) }
-                        }
-                        MenuGroup("Translation", note = "Hold to peek")
-                        MenuChoice("None", secondary == null) { session.selectSecondary(null) }
-                        tracks.filter { it !== primary }.forEach { track ->
-                            MenuChoice(track.shortName, track === secondary, track.detail) { session.selectSecondary(track) }
-                        }
-                    }
-                    // the shift between the buttons that change it; tapped, it goes back to none
-                    MenuGroup("Timing")
-                    Row(
-                        Modifier.padding(horizontal = 4.dp).fillMaxWidth().height(44.dp).clip(OPTION_SHAPE)
-                            .background(MaterialTheme.colorScheme.optionField),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        listOf(-1.0 to "−1", -0.1 to "−.1").forEach { (delta, label) -> OffsetButton(label) { session.setOffset(offset + delta) } }
-                        Text(
-                            when {
-                                offset == 0.0 -> "in sync"
-                                else -> "%+.1fs".format(offset)
-                            },
-                            color = if (offset == 0.0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f).fillMaxHeight()
-                                .clickable(enabled = offset != 0.0) { session.setOffset(0.0) }
-                                .wrapContentHeight(),
-                        )
-                        listOf(0.1 to "+.1", 1.0 to "+1").forEach { (delta, label) -> OffsetButton(label) { session.setOffset(offset + delta) } }
-                    }
-                    MenuGroup("While watching")
-                    MenuChoice("Stop at each line", autoPause) { session.setAutoPause(!autoPause) }
-                    MenuChoice("Lock landscape", landscapeLock) { session.setLandscapeLock(!landscapeLock) }
-                }
-            }
+            PlayerOptionsCard(
+                fill = fill,
+                onFill = session::setFill,
+                audioTracks = audioTracks,
+                audioTrack = audioTrack,
+                onAudio = session::selectAudio,
+                tracks = tracks,
+                primary = primary,
+                secondary = secondary,
+                onPrimary = session::selectPrimary,
+                onSecondary = session::selectSecondary,
+                offset = offset,
+                onOffset = session::setOffset,
+                autoPause = autoPause,
+                onAutoPause = session::setAutoPause,
+                landscapeLock = landscapeLock,
+                onLandscapeLock = session::setLandscapeLock,
+                onDone = onDismiss,
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            )
         }
     }
-}
-
-/** The corners of the timing control, as the menu's segments have. */
-private val OPTION_SHAPE = RoundedCornerShape(8.dp)
-
-/** What the timing control sits on: a faint lift off the dialog, as the segments do. */
-private val ColorScheme.optionField: Color
-    get() = onSurface.copy(alpha = 0.06f)
-
-/** One of the segments of the timing control that shift the subtitles. */
-@Composable
-private fun OffsetButton(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        maxLines = 1,
-        style = MaterialTheme.typography.labelLarge,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.width(44.dp).fillMaxHeight().clickable(onClick = onClick).wrapContentHeight(),
-    )
 }
 
 /** With Anki on, a button on each of [lookup]'s entries that makes a card of it. */
