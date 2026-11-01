@@ -3,6 +3,9 @@
 package app.mizune.desktop
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -827,17 +830,20 @@ private fun VolumeControl(
             color = color,
             hoverColor = hoverColor,
         ) { VolumeIcon(it, volume / 100f, muted) }
-        if (open) {
+        // kept up through its exit, so it can grow back down into the speaker
+        val shown = remember { MutableTransitionState(false) }
+        shown.targetState = open
+        if (shown.currentState || shown.targetState) {
             Popup(popupPositionProvider = AboveAnchor, properties = PopupProperties(focusable = false)) {
-                val thickness by animateDpAsState(if (sliderHovered || held) 5.dp else 4.dp, label = "volume")
+                val thickness by animateDpAsState(if (sliderHovered || held) 5.dp else 3.dp, label = "volume")
                 fun at(y: Float, height: Int) = ((1 - y / height).coerceIn(0f, 1f) * 100).roundToInt()
-                // the clear margin under the pill reaches down to the speaker, so the pointer never leaves both
-                Box(Modifier.hoverable(slider).then(scroll).padding(bottom = 6.dp)) {
-                    Box(
-                        Modifier.clip(RoundedCornerShape(8.dp))
-                            .background(Color.Black.copy(alpha = 0.72f))
-                            .padding(horizontal = 4.dp, vertical = 10.dp),
-                    ) {
+                // the padding under it reaches down to the speaker, so the pointer never leaves both
+                AnimatedVisibility(
+                    shown,
+                    enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(),
+                    exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut(),
+                ) {
+                    Box(Modifier.hoverable(slider).then(scroll).padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 8.dp)) {
                         Canvas(
                             Modifier.width(20.dp).height(VOLUME_HEIGHT)
                                 .pointerHoverIcon(PointerIcon.Hand)
