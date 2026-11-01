@@ -21,7 +21,7 @@ class CardWriterTest {
         override fun findNotes(deck: String, field: String, value: String) =
             notes.filterValues { it[field] == value }.keys.toList()
         override fun storeMedia(file: File): String = file.name.also { media += it }
-        override fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>): Long =
+        override fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>, allowDuplicate: Boolean): Long =
             (notes.size + 1L).also { notes[it] = fields }
         override fun deleteNotes(ids: List<Long>) { ids.forEach(notes::remove) }
     }
@@ -61,6 +61,15 @@ class CardWriterTest {
 
         writer.remove(added.noteId)
         assertTrue(anki.notes.isEmpty())
+    }
+
+    @Test fun addsTheDuplicateWhenAllowed() {
+        val anki = FakeAnki()
+        val writer = CardWriter(anki, dir)
+        val first = writer.add(word, target, Media(audioWorks = true))
+        val again = writer.add(word, CardTarget(target.format, target.deck, target.tags, allowDuplicates = true), Media(audioWorks = true))
+        assertTrue(again.noteId != first.noteId)
+        assertEquals(2, anki.notes.size)
     }
 
     @Test fun missingAudioStillAddsTheCard() {

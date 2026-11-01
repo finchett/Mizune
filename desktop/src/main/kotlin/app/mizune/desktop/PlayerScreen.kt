@@ -312,6 +312,7 @@ fun PlayerScreen(
             )
         }
     } else null
+    DuplicateCardDialog(app)
 
     // with the panel put away, a word under the pointer in the line over the video opens its entries
     // over it, until the pointer leaves them, the line changes or they're closed. If opening them

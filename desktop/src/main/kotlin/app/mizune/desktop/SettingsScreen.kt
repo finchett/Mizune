@@ -753,6 +753,12 @@ private fun AnkiPane(app: DesktopApp) {
             SettingRow("Tags", "Separated by spaces") {
                 TextInput(settings.ankiTags, settings::updateAnkiTags, width = 220.dp)
             }
+            RowDivider()
+            ToggleRow(
+                "Warn about duplicates",
+                "Ask before adding a card the deck already has. Off, it's added again",
+                settings.ankiWarnDuplicates, settings::updateAnkiWarnDuplicates,
+            )
         }
         NoteTypeSource(
             if (CardFormats.pick(connected.noteTypes) != null) "Cards are set up for Japanese sentences, the mpvacious note type."

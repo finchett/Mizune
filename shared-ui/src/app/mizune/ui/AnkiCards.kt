@@ -61,6 +61,8 @@ class AnkiCards(
     private val target: () -> CardTarget,
     private val mediaDir: File,
     private val logError: (String, Throwable) -> Unit,
+    /** Whether the app shows [duplicate] for the user to answer; otherwise a card Anki has is just refused. */
+    private val asksAboutDuplicates: Boolean = false,
 ) {
     sealed class Status(val message: String) {
         class Working(message: String) : Status(message)
@@ -72,6 +74,13 @@ class AnkiCards(
     /** What the last request is doing or did, shown for a few seconds after it finishes. */
     val status: StateFlow<Status?> = _status.asStateFlow()
 
+    /** A card Anki already had, held while the app asks whether to add it anyway. */
+    class Duplicate(val word: MinedWord, internal val media: CardMedia)
+
+    private val _duplicate = MutableStateFlow<Duplicate?>(null)
+    /** The card to ask about, if any; [settleDuplicate] answers. */
+    val duplicate: StateFlow<Duplicate?> = _duplicate.asStateFlow()
+
     /** Notes of words (expression and sentence) added, or found already in Anki, since the app started. */
     private val notes = mutableStateMapOf<Pair<String, String>, Long>()
 
@@ -81,16 +90,26 @@ class AnkiCards(
 
     fun isAdded(word: MinedWord) = word.key in notes
 
-    fun add(word: MinedWord, media: CardMedia) = run(word, "Adding ${word.entry.expression} to Anki…") {
+    /** Adds a card of [word]; [anyway] even if Anki has it already. */
+    fun add(word: MinedWord, media: CardMedia, anyway: Boolean = false) = run(word, "Adding ${word.entry.expression} to Anki…") {
         try {
-            val added = CardWriter(connect(), mediaDir).add(word, target(), media)
+            val target = target().let { if (anyway) it.copy(allowDuplicates = true) else it }
+            val added = CardWriter(connect(), mediaDir).add(word, target, media)
             notes[word.key] = added.noteId
             val missing = added.missing.joinToString(" or ").ifEmpty { null }
             "Added ${word.entry.expression} to Anki" + (missing?.let { " (no $it)" } ?: "")
         } catch (e: CardWriter.Duplicate) {
             e.noteId?.let { notes[word.key] = it }
+            if (asksAboutDuplicates) _duplicate.value = Duplicate(word, media)
             throw e
         }
+    }
+
+    /** Adds the card asked about after all, or lets it go. */
+    fun settleDuplicate(add: Boolean) {
+        val held = _duplicate.value ?: return
+        _duplicate.value = null
+        if (add) add(held.word, held.media, anyway = true)
     }
 
     /** Deletes the note made of [word]. */

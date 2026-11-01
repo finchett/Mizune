@@ -47,7 +47,8 @@ class AnkiDroid(private val context: Context) : AnkiBackend {
         }
     }
 
-    override fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>): Long {
+    // the provider takes duplicates as they come; refusing them is [cannotAdd]'s job
+    override fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>, allowDuplicate: Boolean): Long {
         val model = models().firstOrNull { it.name == noteType } ?: throw AnkiException("model was not found: $noteType")
         val deckId = deckIds()[deck] ?: throw AnkiException("deck was not found: $deck")
         val values = ContentValues().apply {

@@ -36,6 +36,7 @@ class DesktopApp(
         target = settings::cardTarget,
         mediaDir = File(cacheDir, "anki"),
         logError = ::logError,
+        asksAboutDuplicates = true,
     )
     /** Started by main, so tests never touch the feed. */
     val updater = Updater(cacheDir, dataDir, automatic = { settings.autoUpdate }, logError = ::logError)
