@@ -9,7 +9,10 @@ import androidx.compose.runtime.snapshots.Snapshot
 import java.io.File
 import java.security.MessageDigest
 
-/** Library thumbnails: a frame from each video, decoded by mpv. */
+/**
+ * Library thumbnails: a frame from each video, decoded by mpv, kept under its URI. Continue
+ * watching's frame from where a video was left has a key of its own.
+ */
 class ThumbnailStore(context: Context) {
     private val directory = File(context.cacheDir, "thumbnails").apply { mkdirs() }
 

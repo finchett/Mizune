@@ -184,11 +184,11 @@ class Prefs(context: Context) {
         return CardTarget(format, deck, ankiTags.split(' ', '\u3000').filter { it.isNotBlank() })
     }
 
-    /** Position a video's library thumbnail was taken at, to know when to refresh it. */
-    fun thumbnailPosition(uri: String): Double = perVideo.getFloat("thumbpos:$uri", -1f).toDouble()
+    /** Position a library thumbnail, kept under [key] in the thumbnail store, was taken at, to know when to refresh it. */
+    fun thumbnailPosition(key: String): Double = perVideo.getFloat("thumbpos:$key", -1f).toDouble()
 
-    fun setThumbnailPosition(uri: String, seconds: Double) =
-        perVideo.edit { putFloat("thumbpos:$uri", seconds.toFloat()) }
+    fun setThumbnailPosition(key: String, seconds: Double) =
+        perVideo.edit { putFloat("thumbpos:$key", seconds.toFloat()) }
 
     /** Seconds to shift a video's subtitles (positive = subtitles appear later). */
     fun subtitleOffset(uri: String): Double = perVideo.getFloat("offset:$uri", 0f).toDouble()

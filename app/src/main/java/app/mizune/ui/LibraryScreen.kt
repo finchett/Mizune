@@ -312,37 +312,33 @@ private fun FolderGrid(
     }
 
     // warm the cache so scrolling never waits on a decode
-    LaunchedEffect(listing) {
+    LaunchedEffect(listing, resume) {
         val videos = listing?.let { it.videos + it.covers.values } ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
+            resume?.let { app.thumbnails.load(leftOffKey(it.video)) }
             videos.forEach { app.thumbnails.load(it.uri.toString()) }
         }
     }
 
-    // fill in missing thumbnails while the library is open (libmpv is free then), folder covers too,
-    // and Continue watching's first, since it's the one most likely to be watched further on
+    // fill in missing thumbnails while the library is open (libmpv is free then), folder covers too.
+    // Continue watching's frame from where it was left comes first, and is taken again once it's been
+    // watched further on; every other card keeps the video's own frame, a fifth of the way in
     LaunchedEffect(listing, resume) {
-        val videos = listing?.let { listOfNotNull(resume?.video) + it.videos + it.covers.values } ?: return@LaunchedEffect
+        val videos = listing?.let { it.videos + it.covers.values } ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
+            resume?.video?.let { video ->
+                val key = leftOffKey(video)
+                val watched = app.prefs.position(video.uri.toString())
+                val needed = !app.thumbnails.exists(key) || kotlin.math.abs(app.prefs.thumbnailPosition(key) - watched) > 30.0
+                if (needed && !generate(context, app, video.uri.toString(), key, watched)) return@withContext
+            }
             for (video in videos) {
                 // left for another folder: its thumbnails come first
                 if (!isActive) return@withContext
                 val uri = video.uri.toString()
-                val watched = app.prefs.position(uri)
-                val takenAt = app.prefs.thumbnailPosition(uri)
-                val wanted = if (watched > 0) watched else 0.0
-                // make one if it's missing, or refresh it when you've watched further on
-                val needed = !app.thumbnails.exists(uri) || kotlin.math.abs(takenAt - wanted) > 30.0
-                if (!needed) continue
-                if (!MpvOwner.tryAcquire("thumbnails")) return@withContext
-                try {
-                    val start = if (watched > 0) watched.toInt().toString() else "20%"
-                    if (ThumbnailGenerator.generate(context, uri, app.thumbnails, start)) {
-                        app.prefs.setThumbnailPosition(uri, wanted)
-                    }
-                } finally {
-                    MpvOwner.release("thumbnails")
-                }
+                // before Continue watching had its own frame, a watched video's was taken where it was left
+                val needed = !app.thumbnails.exists(uri) || app.prefs.thumbnailPosition(uri) > 0
+                if (needed && !generate(context, app, uri, uri, 0.0)) return@withContext
             }
         }
     }
@@ -403,7 +399,7 @@ private fun FolderGrid(
             item(key = "resume") {
                 VideoCard(
                     app, item.video, item.show ?: item.title, number = null,
-                    detail = item.show?.let { "${item.title} · ${item.left}" } ?: item.left,
+                    detail = item.show?.let { "${item.title} · ${item.left}" } ?: item.left, leftOff = true,
                 ) { onOpenVideo(item.video, item.siblings) }
             }
         }
@@ -497,26 +493,50 @@ private fun FolderCard(app: App, folder: Entry.Folder, onClick: () -> Unit) {
     }
 }
 
+/** Where Continue watching's frame of [video], from where it was left, is kept beside its own. */
+private fun leftOffKey(video: LibraryFile) = video.uri.toString() + "#left"
+
+/**
+ * Takes a frame of [uri] [at] seconds in (a fifth of the way in for 0) and keeps it under [key].
+ * False when libmpv is busy with the player, so the caller stops for now.
+ */
+private fun generate(context: Context, app: App, uri: String, key: String, at: Double): Boolean {
+    if (!MpvOwner.tryAcquire("thumbnails")) return false
+    try {
+        val start = if (at > 0) at.toInt().toString() else "20%"
+        if (ThumbnailGenerator.generate(context, uri, app.thumbnails, start, key)) app.prefs.setThumbnailPosition(key, at)
+    } finally {
+        MpvOwner.release("thumbnails")
+    }
+    return true
+}
+
 /** The cached frame for a video, kept up to date as thumbnails are generated. */
 @Composable
-private fun rememberThumbnail(app: App, uri: String): android.graphics.Bitmap? {
-    var thumbnail by remember(uri) { mutableStateOf(app.thumbnails.cached(uri)) }
+private fun rememberThumbnail(app: App, key: String): android.graphics.Bitmap? {
+    var thumbnail by remember(key) { mutableStateOf(app.thumbnails.cached(key)) }
     // reloads only when this video's thumbnail changes
-    val version = app.thumbnails.versions[uri] ?: 0L
-    LaunchedEffect(uri, version) {
-        thumbnail = withContext(Dispatchers.IO) { app.thumbnails.load(uri) }
+    val version = app.thumbnails.versions[key] ?: 0L
+    LaunchedEffect(key, version) {
+        thumbnail = withContext(Dispatchers.IO) { app.thumbnails.load(key) }
     }
     return thumbnail
 }
 
-/** A video: its frame, how far in, and its name; [detail] in place of its times when given. */
+/**
+ * A video: its frame, how far in, and its name; [detail] in place of its times when given, and
+ * with [leftOff] the frame from where it was left.
+ */
 @Composable
-private fun VideoCard(app: App, video: LibraryFile, title: String, number: Int?, detail: String? = null, onClick: () -> Unit) {
+private fun VideoCard(
+    app: App, video: LibraryFile, title: String, number: Int?,
+    detail: String? = null, leftOff: Boolean = false, onClick: () -> Unit,
+) {
     val uri = video.uri.toString()
     val position = app.prefs.position(uri)
     val duration = app.prefs.duration(uri)
     val progress = if (duration > 0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f
-    val thumbnail = rememberThumbnail(app, uri)
+    val thumbnail = rememberThumbnail(app, if (leftOff) leftOffKey(video) else uri)
 
     val scheme = MaterialTheme.colorScheme
     Column(
