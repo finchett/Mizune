@@ -110,6 +110,9 @@ class MpvPlayer {
         option("sub-auto", "no")
         option("sid", "no") // the app draws subtitles itself
         option("terminal", "no")
+        // mpv sets the volume before its audio buffer, so a change is heard only once the buffer
+        // drains: a shorter one than the default 0.2s makes the slider feel live
+        option("audio-buffer", "0.05")
         // extra options for experiments: -Dmpv.options=name=value,name=value
         System.getProperty("mpv.options")?.split(',')?.filter { '=' in it }?.forEach {
             option(it.substringBefore('='), it.substringAfter('='))

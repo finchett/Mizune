@@ -280,7 +280,7 @@ class PlayerScreenTest {
         }
     }
 
-    /** The speaker mutes and unmutes; hovering it shows the slider, which sets the volume, unmuting, and the scroll wheel nudges it. */
+    /** The speaker mutes and unmutes; hovering it puts up the slider, which sets the volume, unmuting, and the scroll wheel nudges it. */
     @Test
     fun volumeControl() {
         assumeTrue("set MIZUNE_TEST_VIDEO", videoSource?.isFile == true)
@@ -311,8 +311,8 @@ class PlayerScreenTest {
                 waitUntil(timeoutMillis = 5_000) { mute() == "yes" }
                 shot("7-volume-muted")
 
-                // a click a quarter of the way along sets a quarter, and unmutes
-                onNodeWithContentDescription("Volume").performMouseInput { click(Offset(width * 0.25f, height / 2f)) }
+                // a click a quarter of the way up sets a quarter, and unmutes
+                onNodeWithContentDescription("Volume").performMouseInput { click(Offset(width / 2f, height * 0.75f)) }
                 assertEquals(25, app.settings.volume)
                 assertFalse(app.settings.muted)
                 waitUntil(timeoutMillis = 5_000) { volume() == 25 && mute() == "no" }
