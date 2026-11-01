@@ -34,7 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** What AnkiDroid reported: the collection's note types and decks. */
-private class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
+internal class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
 
 /** The Anki section of the settings: cards go to AnkiDroid on the phone. */
 @Composable
@@ -119,13 +119,8 @@ fun AnkiSettings(app: App) {
         val name = noteType ?: return@LaunchedEffect
         val names = withContext(Dispatchers.IO) { runCatching { AnkiDroid(context).fieldNames(name) }.getOrNull() }
             ?: return@LaunchedEffect
-        val saved = prefs.cardFormat(name)
-        val current = if (saved == null || saved.fields.keys != names.toSet()) {
-            val suggested = CardFormats.forNoteType(name, names).fields
-            CardFormat(name, names.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }).also(prefs::saveCardFormat)
-        } else saved
+        format = prefs.fillCardFormat(name, names)
         fields = names
-        format = current
     }
     val shownFormat = format?.takeIf { it.noteType == noteType }
     if (shownFormat != null) {
