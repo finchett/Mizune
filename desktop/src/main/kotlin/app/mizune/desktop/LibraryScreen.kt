@@ -1,20 +1,10 @@
 package app.mizune.desktop
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import app.mizune.ui.Motion
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,7 +50,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mizune.library.NaturalOrder
 import app.mizune.library.RecentVideos
-import app.mizune.ui.ResumeBar
 import app.mizune.library.Titles
 import app.mizune.library.isVideoName
 import app.mizune.ui.Cog
@@ -173,20 +162,9 @@ fun LibraryHeader(
     }
 }
 
-/**
- * Everything below the header: the folder's contents, or a way to choose the library folder.
- * [focus] is a video to scroll to and point out, for arriving from the resume bar;
- * [onShowVideo] goes to a video's folder that way.
- */
+/** Everything below the header: the folder's contents, or a way to choose the library folder. */
 @Composable
-fun LibraryBody(
-    app: DesktopApp,
-    folder: File?,
-    onOpenFolder: (File) -> Unit,
-    onOpenVideo: (File) -> Unit,
-    focus: File? = null,
-    onShowVideo: (File) -> Unit = {},
-) {
+fun LibraryBody(app: DesktopApp, folder: File?, onOpenFolder: (File) -> Unit, onOpenVideo: (File) -> Unit) {
     val (root, current) = locate(app, folder)
     if (current == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -207,7 +185,7 @@ fun LibraryBody(
             }
         }
     } else {
-        FolderContents(app, current, atRoot = current == root, focus, onOpenFolder, onOpenVideo, onShowVideo)
+        FolderContents(app, current, atRoot = current == root, onOpenFolder, onOpenVideo)
     }
 }
 
@@ -216,20 +194,22 @@ private fun FolderContents(
     app: DesktopApp,
     folder: File,
     atRoot: Boolean,
-    focus: File?,
     onOpenFolder: (File) -> Unit,
     onOpenVideo: (File) -> Unit,
-    onShowVideo: (File) -> Unit,
 ) {
     var listing by remember(folder) { mutableStateOf<Listing?>(null) }
     LaunchedEffect(folder) { listing = withContext(Dispatchers.IO) { list(folder) } }
     // only at the top of the library, where you land when you open the app
     var resume by remember(folder) { mutableStateOf<Resume?>(null) }
+    // the grid waits for the first look, so Continue watching doesn't push the folders down after they're drawn
+    var looked by remember(folder) { mutableStateOf(!atRoot) }
     val recent = app.settings.recent
     LaunchedEffect(folder, recent) {
         if (atRoot) resume = withContext(Dispatchers.IO) { lastStopped(app, folder) }
+        looked = true
     }
     val shown = listing ?: return
+    if (!looked) return
     // the library's own folder by its name too, as every folder below it is; the header says Library
     val title = app.settings.title(folder.name).ifEmpty { "Your library" }
     val tidy = app.settings.tidyNames
@@ -245,98 +225,70 @@ private fun FolderContents(
         }
         return
     }
-    val grid = rememberLazyGridState()
-    // the video the resume bar led here: scrolled to, and ringed for a moment so the eye finds it
-    var pointedOut by remember(folder) { mutableStateOf(focus?.path) }
-    LaunchedEffect(shown, focus) {
-        val index = shown.videos.indexOfFirst { it.path == focus?.path }
-        if (index < 0) return@LaunchedEffect
-        val both = shown.folders.isNotEmpty() && shown.videos.isNotEmpty()
-        // after the title, the folders, and the two labels when there are both
-        val target = 1 + shown.folders.size + (if (both) 2 else 0) + index
-        // only when it isn't in full view already, so an early episode keeps the title in sight
-        val layout = snapshotFlow { grid.layoutInfo }.first { it.totalItemsCount > 0 }
-        val seen = layout.visibleItemsInfo.firstOrNull { it.index == target }
-        val inView = seen != null && seen.offset.y >= 0 &&
-            seen.offset.y + seen.size.height <= layout.viewportEndOffset - layout.afterContentPadding
-        if (!inView) grid.scrollToItem(target)
-        delay(1600)
-        pointedOut = null
-    }
-    Box(Modifier.fillMaxSize()) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(232.dp),
-            modifier = Modifier.fillMaxSize(),
-            state = grid,
-            // room at the foot for the last row to scroll clear of the resume bar
-            contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 28.dp, bottom = if (resume != null) 120.dp else 40.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-        ) {
-            item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
-                PageTitle(title, listOfNotNull(
-                    count(shown.folders.size, "folder"),
-                    count(shown.videos.size, "video"),
-                ).joinToString(" · "))
-            }
-            // labelled groups only when there are two kinds to tell apart
-            val both = shown.folders.isNotEmpty() && shown.videos.isNotEmpty()
-            if (both) {
-                item(key = "folders", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Folders", Modifier.padding(top = 4.dp)) }
-            }
-            items(shown.folders, key = { it.dir.path }) { item ->
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(232.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 28.dp, bottom = 40.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp),
+    ) {
+        item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
+            PageTitle(title, listOfNotNull(
+                count(shown.folders.size, "folder"),
+                count(shown.videos.size, "video"),
+            ).joinToString(" · "))
+        }
+        resume?.let { item ->
+            item(key = "continue", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Continue watching", Modifier.padding(top = 4.dp)) }
+            // the same card as any video, so it sits in the grid's rhythm; it plays from where it stopped
+            item(key = "resume") {
                 Card(
                     app = app,
-                    thumbnailOf = item.cover,
+                    thumbnailOf = item.video,
                     badge = null,
-                    progress = 0f,
-                    title = app.settings.title(item.dir.name),
-                    subtitle = when (item.videos) {
-                        0 -> null
-                        1 -> "1 video"
-                        else -> "${item.videos} videos"
-                    },
-                    onClick = { onOpenFolder(item.dir) },
-                )
-            }
-            if (both) {
-                item(key = "videos", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Videos", Modifier.padding(top = 10.dp)) }
-            }
-            // numbered by place in the folder: names carry too many other numbers (1080p, 10bit) to guess from
-            itemsIndexed(shown.videos, key = { _, video -> video.path }) { index, video ->
-                Card(
-                    app = app,
-                    thumbnailOf = video,
-                    // a title that already says which episode it is needs no place number beside it
-                    badge = if (app.settings.episodeNumbers && !namesEpisode(videoTitles[index])) "${index + 1}" else null,
-                    progress = remember(video) { app.settings.progress(video.absolutePath) },
-                    title = videoTitles[index],
-                    subtitle = null,
-                    onClick = { onOpenVideo(video) },
-                    pointedOut = video.path == pointedOut,
+                    progress = item.progress,
+                    title = item.show ?: item.title,
+                    subtitle = item.show?.let { "${item.title} · ${item.left}" } ?: item.left,
+                    onClick = { onOpenVideo(item.video) },
                 )
             }
         }
-        // the last one shown stays drawn while it slides away
-        var barItem by remember { mutableStateOf<Resume?>(null) }
-        if (resume != null) barItem = resume
-        AnimatedVisibility(
-            visible = resume != null,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
-            enter = fadeIn(Motion.fade) + slideInVertically(Motion.slide) { it / 2 },
-            exit = fadeOut(Motion.fade) + slideOutVertically(Motion.slide) { it / 2 },
-        ) {
-            barItem?.let { item ->
-                ResumeBar(
-                    frame = rememberThumbnail(app, item.video),
-                    show = item.show,
-                    title = item.title,
-                    left = item.left,
-                    progress = item.progress,
-                    onShow = { onShowVideo(item.video) },
-                    onPlay = { onOpenVideo(item.video) },
-                )
-            }
+        // labelled groups only when there are two kinds to tell apart, Continue watching among them
+        val kinds = listOf(resume != null, shown.folders.isNotEmpty(), shown.videos.isNotEmpty()).count { it }
+        if (kinds > 1 && shown.folders.isNotEmpty()) {
+            item(key = "folders", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Folders", Modifier.padding(top = 10.dp)) }
+        }
+        items(shown.folders, key = { it.dir.path }) { item ->
+            Card(
+                app = app,
+                thumbnailOf = item.cover,
+                badge = null,
+                progress = 0f,
+                title = app.settings.title(item.dir.name),
+                subtitle = when (item.videos) {
+                    0 -> null
+                    1 -> "1 video"
+                    else -> "${item.videos} videos"
+                },
+                onClick = { onOpenFolder(item.dir) },
+                folder = true,
+            )
+        }
+        if (kinds > 1 && shown.videos.isNotEmpty()) {
+            item(key = "videos", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Videos", Modifier.padding(top = 10.dp)) }
+        }
+        // numbered by place in the folder: names carry too many other numbers (1080p, 10bit) to guess from
+        itemsIndexed(shown.videos, key = { _, video -> video.path }) { index, video ->
+            Card(
+                app = app,
+                thumbnailOf = video,
+                // a title that already says which episode it is needs no place number beside it
+                badge = if (app.settings.episodeNumbers && !namesEpisode(videoTitles[index])) "${index + 1}" else null,
+                progress = remember(video) { app.settings.progress(video.absolutePath) },
+                title = videoTitles[index],
+                subtitle = null,
+                onClick = { onOpenVideo(video) },
+            )
         }
     }
 }
@@ -350,16 +302,13 @@ private fun Card(
     title: String,
     subtitle: String?,
     onClick: () -> Unit,
-    pointedOut: Boolean = false,
+    folder: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val ring by animateColorAsState(
-        if (hovered || pointedOut) scheme.primary else scheme.primary.copy(alpha = 0f),
-        tween(if (pointedOut || hovered) 120 else 600), label = "ring",
-    )
+    val ring by animateColorAsState(if (hovered) scheme.primary else scheme.primary.copy(alpha = 0f), tween(120), label = "ring")
     Column(
         Modifier.hoverable(interaction).clickable(interaction, indication = null, onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand),
@@ -373,7 +322,7 @@ private fun Card(
             val image = thumbnailOf?.let { rememberThumbnail(app, it) }
             if (image != null) {
                 Image(image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else if (subtitle != null) {
+            } else if (folder) {
                 FolderMark(scheme.onSurfaceVariant.copy(alpha = 0.55f))
             }
             if (badge != null) {

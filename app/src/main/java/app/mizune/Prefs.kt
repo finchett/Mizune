@@ -216,7 +216,7 @@ class Prefs(context: Context) {
         markPlayed(uri)
     }
 
-    /** The videos played last, newest first, for the library's resume bar (RecentVideos). */
+    /** The videos played last, newest first, for Continue watching at the top of the library (RecentVideos). */
     val recent: List<String>
         get() = prefs.getString("recent", "").orEmpty().split('\n').filter { it.isNotEmpty() }
 

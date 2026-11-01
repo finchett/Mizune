@@ -9,19 +9,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.mandatorySystemGestures
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -96,8 +83,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 
 private data class Listing(
     val folders: List<LibraryFile>,
@@ -116,11 +101,10 @@ private sealed interface Entry {
 
 /**
  * A video stopped partway, to pick up again: its show (null for one at the top), name, and how far
- * in. [folders] lead from the library down to its folder, which holds [siblings].
+ * in. Its folder holds [siblings], to play on from it.
  */
 private data class Resume(
     val video: LibraryFile,
-    val folders: List<LibraryFile>,
     val siblings: List<LibraryFile>,
     val show: String?,
     val title: String,
@@ -142,12 +126,6 @@ fun LibraryScreen(
             ?.let(LibraryFile::root)
     }
     var path by remember(root) { mutableStateOf(listOfNotNull(root)) }
-    // the video the resume bar led to, to point out in its folder; any other move forgets it
-    var focus by remember(root) { mutableStateOf<Uri?>(null) }
-    fun go(to: List<LibraryFile>, pointAt: Uri? = null) {
-        focus = pointAt
-        path = to
-    }
     // reopen the folder you were last in (and don't save until that's done)
     var restoring by remember(root) { mutableStateOf(true) }
     LaunchedEffect(root) {
@@ -182,7 +160,7 @@ fun LibraryScreen(
         }
     }
 
-    BackHandler(enabled = path.size > 1) { go(path.dropLast(1)) }
+    BackHandler(enabled = path.size > 1) { path = path.dropLast(1) }
 
     val controlsVisible = remember { mutableStateOf(true) }
     DisposableEffect(Unit) {
@@ -219,11 +197,9 @@ fun LibraryScreen(
                             folder = it,
                             title = if (folder.size > 1) app.title(it.name) else "Your library",
                             atRoot = folder.size == 1,
-                            focus = focus,
                             controlsVisible = controlsVisible,
-                            onOpenFolder = { child -> go(path + child) },
+                            onOpenFolder = { child -> path = path + child },
                             onOpenVideo = onOpenVideo,
-                            onShowVideo = { go(it.folders, pointAt = it.video.uri) },
                         )
                     }
                 }
@@ -248,7 +224,7 @@ fun LibraryScreen(
                         if (path.size > 1) {
                             FolderChip(
                                 name = if (path.size > 2) app.title(path[path.size - 2].name) else "Library",
-                                onUp = { go(path.dropLast(1)) },
+                                onUp = { path = path.dropLast(1) },
                             )
                         }
                     }
@@ -289,6 +265,17 @@ private object LibraryCache {
     operator fun set(uri: String, listing: Listing) {
         synchronized(folders) { folders[uri] = listing }
     }
+
+    /** What Continue watching showed last at the top of each library, null for nothing to show. */
+    private val resumes = HashMap<String, Resume?>()
+
+    fun lookedForResume(root: String): Boolean = synchronized(resumes) { root in resumes }
+
+    fun resume(root: String): Resume? = synchronized(resumes) { resumes[root] }
+
+    fun setResume(root: String, resume: Resume?) {
+        synchronized(resumes) { resumes[root] = resume }
+    }
 }
 
 /** One folder's contents: its own listing, thumbnails and scroll position. */
@@ -298,11 +285,9 @@ private fun FolderGrid(
     folder: LibraryFile,
     title: String,
     atRoot: Boolean,
-    focus: Uri?,
     controlsVisible: MutableState<Boolean>,
     onOpenFolder: (LibraryFile) -> Unit,
     onOpenVideo: (LibraryFile, List<LibraryFile>) -> Unit,
-    onShowVideo: (Resume) -> Unit,
 ) {
     val context = LocalContext.current
     // what this folder held last time, so coming back from a video paints at once; the listing is
@@ -313,10 +298,17 @@ private fun FolderGrid(
         LibraryCache[folder.uri.toString()] = fresh
         listing = fresh
     }
-    // only at the top of the library, where you land when you open the app
-    var resume by remember(folder) { mutableStateOf<Resume?>(null) }
+    // only at the top of the library. What it showed last paints at once, as the listing does; the
+    // first time, the grid waits for it, so Continue watching doesn't push the folders down
+    val key = folder.uri.toString()
+    var resume by remember(folder) { mutableStateOf(if (atRoot) LibraryCache.resume(key) else null) }
+    var looked by remember(folder) { mutableStateOf(!atRoot || LibraryCache.lookedForResume(key)) }
     LaunchedEffect(folder) {
-        if (atRoot) resume = withContext(Dispatchers.IO) { lastStopped(context, app, folder) }
+        if (!atRoot) return@LaunchedEffect
+        val found = withContext(Dispatchers.IO) { lastStopped(context, app, folder) }
+        LibraryCache.setResume(key, found)
+        resume = found
+        looked = true
     }
 
     // warm the cache so scrolling never waits on a decode
@@ -328,7 +320,7 @@ private fun FolderGrid(
     }
 
     // fill in missing thumbnails while the library is open (libmpv is free then), folder covers too,
-    // and the resume bar's first, since it's the one most likely to be watched further on
+    // and Continue watching's first, since it's the one most likely to be watched further on
     LaunchedEffect(listing, resume) {
         val videos = listing?.let { listOfNotNull(resume?.video) + it.videos + it.covers.values } ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
@@ -372,7 +364,7 @@ private fun FolderGrid(
     }
 
     val shown = listing
-    if (shown == null) {
+    if (shown == null || !looked) {
         // the folder is listed on the IO thread; leave the space empty rather than flash a spinner
         Box(Modifier.fillMaxSize())
         return
@@ -387,88 +379,46 @@ private fun FolderGrid(
     }
     val videos = shown.videos.mapIndexed { i, video -> Entry.Video(video, i + 1) }
     val detail = listOfNotNull(count(folders.size, "folder"), count(videos.size, "video")).joinToString(" · ")
-    // the video the resume bar led here: scrolled to, and ringed for a moment so the eye finds it
-    var pointedOut by remember(folder, focus) { mutableStateOf(focus) }
-    LaunchedEffect(shown, focus) {
-        val index = shown.videos.indexOfFirst { it.uri == focus }
-        if (index < 0) return@LaunchedEffect
-        val both = folders.isNotEmpty() && videos.isNotEmpty()
-        // after the title, the folders, and the two labels when there are both
-        val target = 1 + folders.size + (if (both) 2 else 0) + index
-        // only when it isn't in full view already, so an early episode keeps the title in sight
-        val layout = snapshotFlow { gridState.layoutInfo }.first { it.totalItemsCount > 0 }
-        val seen = layout.visibleItemsInfo.firstOrNull { it.index == target }
-        val inView = seen != null && seen.offset.y >= 0 &&
-            seen.offset.y + seen.size.height <= layout.viewportEndOffset - layout.afterContentPadding
-        if (!inView) gridState.scrollToItem(target)
-        delay(1600)
-        pointedOut = null
-    }
-    // clear of the camera cutout, and of the home gesture along the foot of the screen
-    val barInsets = WindowInsets.safeDrawing.union(WindowInsets.mandatorySystemGestures)
-        .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-    Box(Modifier.fillMaxSize()) {
-        LazyVerticalGrid(
-            state = gridState,
-            columns = GridCells.Adaptive(200.dp),
-            // room at the foot for the last row to scroll clear of the resume bar
-            contentPadding = PaddingValues(
-                start = 16.dp, end = 16.dp, top = 60.dp,
-                bottom = if (resume != null) barInsets.asPaddingValues().calculateBottomPadding() + 120.dp else 20.dp,
-            ),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
-                Column(Modifier.padding(start = 2.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        detail.ifEmpty { "Nothing here." },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            // labelled groups only when there are two kinds to tell apart
-            val both = folders.isNotEmpty() && videos.isNotEmpty()
-            if (both) item(key = "folders", span = { GridItemSpan(maxLineSpan) }) { GroupLabel("Folders") }
-            items(folders, key = { it.file.uri.toString() }) { entry ->
-                FolderCard(app, entry) { onOpenFolder(entry.file) }
-            }
-            if (both) item(key = "videos", span = { GridItemSpan(maxLineSpan) }) { GroupLabel("Videos") }
-            items(videos, key = { it.file.uri.toString() }) { entry ->
-                val name = videoTitles[entry.number - 1]
-                // a title that already says which episode it is needs no place number beside it
-                val number = entry.number.takeIf { app.prefs.episodeNumbers && !namesEpisode(name) }
-                VideoCard(app, entry.file, name, number, pointedOut = entry.file.uri == pointedOut) {
-                    onOpenVideo(entry.file, shown.all)
-                }
-            }
-        }
-        // the last one shown stays drawn while it slides away; out of the way, as the header is,
-        // while scrolling down through the grid
-        var barItem by remember { mutableStateOf<Resume?>(null) }
-        if (resume != null) barItem = resume
-        AnimatedVisibility(
-            visible = resume != null && controlsVisible.value,
-            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(barInsets)
-                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-            enter = fadeIn(Motion.fade) + slideInVertically(Motion.slide) { it / 2 },
-            exit = fadeOut(Motion.fade) + slideOutVertically(Motion.slide) { it / 2 },
-        ) {
-            barItem?.let { item ->
-                val frame = rememberThumbnail(app, item.video.uri.toString())
-                ResumeBar(
-                    frame = remember(frame) { frame?.asImageBitmap() },
-                    show = item.show,
-                    title = item.title,
-                    left = item.left,
-                    progress = item.progress,
-                    onShow = { onShowVideo(item) },
-                    onPlay = { onOpenVideo(item.video, item.siblings) },
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Adaptive(200.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 60.dp, bottom = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
+            Column(Modifier.padding(start = 2.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    detail.ifEmpty { "Nothing here." },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        resume?.let { item ->
+            item(key = "continue", span = { GridItemSpan(maxLineSpan) }) { GroupLabel("Continue watching") }
+            // the same card as any video, so it sits in the grid's rhythm; it plays from where it stopped
+            item(key = "resume") {
+                VideoCard(
+                    app, item.video, item.show ?: item.title, number = null,
+                    detail = item.show?.let { "${item.title} · ${item.left}" } ?: item.left,
+                ) { onOpenVideo(item.video, item.siblings) }
+            }
+        }
+        // labelled groups only when there are two kinds to tell apart, Continue watching among them
+        val kinds = listOf(resume != null, folders.isNotEmpty(), videos.isNotEmpty()).count { it }
+        if (kinds > 1 && folders.isNotEmpty()) item(key = "folders", span = { GridItemSpan(maxLineSpan) }) { GroupLabel("Folders") }
+        items(folders, key = { it.file.uri.toString() }) { entry ->
+            FolderCard(app, entry) { onOpenFolder(entry.file) }
+        }
+        if (kinds > 1 && videos.isNotEmpty()) item(key = "videos", span = { GridItemSpan(maxLineSpan) }) { GroupLabel("Videos") }
+        items(videos, key = { it.file.uri.toString() }) { entry ->
+            val name = videoTitles[entry.number - 1]
+            // a title that already says which episode it is needs no place number beside it
+            val number = entry.number.takeIf { app.prefs.episodeNumbers && !namesEpisode(name) }
+            VideoCard(app, entry.file, name, number) { onOpenVideo(entry.file, shown.all) }
         }
     }
 }
@@ -559,15 +509,9 @@ private fun rememberThumbnail(app: App, uri: String): android.graphics.Bitmap? {
     return thumbnail
 }
 
+/** A video: its frame, how far in, and its name; [detail] in place of its times when given. */
 @Composable
-private fun VideoCard(
-    app: App,
-    video: LibraryFile,
-    title: String,
-    number: Int?,
-    pointedOut: Boolean = false,
-    onClick: () -> Unit,
-) {
+private fun VideoCard(app: App, video: LibraryFile, title: String, number: Int?, detail: String? = null, onClick: () -> Unit) {
     val uri = video.uri.toString()
     val position = app.prefs.position(uri)
     val duration = app.prefs.duration(uri)
@@ -575,18 +519,11 @@ private fun VideoCard(
     val thumbnail = rememberThumbnail(app, uri)
 
     val scheme = MaterialTheme.colorScheme
-    val ring by animateColorAsState(
-        if (pointedOut) scheme.primary else scheme.primary.copy(alpha = 0f),
-        tween(if (pointedOut) 120 else 600), label = "ring",
-    )
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-            Box(
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(scheme.surfaceVariant)
-                    .border(1.5.dp, ring, RoundedCornerShape(12.dp)),
-            ) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(scheme.surfaceVariant)) {
                 val image = thumbnail
                 if (image != null) {
                     Image(
@@ -635,13 +572,14 @@ private fun VideoCard(
                 )
                 Text(
                     when {
+                        detail != null -> detail
                         position > 0 && duration > 0 -> "${formatTime(position)} / ${formatTime(duration)}"
                         position > 0 -> "resume ${formatTime(position)}"
                         duration > 0 -> formatTime(duration)
                         else -> " "
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (position > 0) scheme.primary else scheme.onSurfaceVariant,
+                    color = if (position > 0 && detail == null) scheme.primary else scheme.onSurfaceVariant,
                 )
             }
     }
@@ -699,13 +637,13 @@ private fun lastStopped(context: Context, app: App, root: LibraryFile): Resume? 
         .filter { app.prefs.position(it) > 0 && app.prefs.duration(it) > 0 }
         .firstNotNullOfOrNull { resumeAt(context, app, root, Uri.parse(it)) }
 
-/** The video at [uri] for the resume bar, found by walking down from [root]; null if it isn't in there now. */
+/** The video at [uri] for Continue watching, found by walking down from [root]; null if it isn't in there now. */
 private fun resumeAt(context: Context, app: App, root: LibraryFile, uri: Uri): Resume? {
     // one opened from another app, or from a library folder chosen before this one, is in another tree or none
     if (uri.authority != root.uri.authority || !DocumentsContract.isTreeUri(uri) ||
         DocumentsContract.getTreeDocumentId(uri) != DocumentsContract.getTreeDocumentId(root.uri)
     ) return null
-    // the documents from the top of the tree down to the video; a provider that can't say gets no bar
+    // the documents from the top of the tree down to the video; a provider that can't say gets no card
     val ids = runCatching { DocumentsContract.findDocumentPath(context.contentResolver, uri)?.path }.getOrNull() ?: return null
     val below = ids.drop(ids.indexOf(DocumentsContract.getDocumentId(root.uri)) + 1)
     if (below.isEmpty()) return null
@@ -724,7 +662,6 @@ private fun resumeAt(context: Context, app: App, root: LibraryFile, uri: Uri): R
     val duration = app.prefs.duration(key)
     return Resume(
         video = video,
-        folders = folders,
         siblings = siblings,
         show = RecentVideos.show(if (folders.size > 1) app.title(folders.last().name) else null, title),
         title = title,

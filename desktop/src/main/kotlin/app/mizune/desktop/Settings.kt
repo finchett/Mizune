@@ -263,7 +263,7 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         markPlayed(path)
     }
 
-    /** The videos played last, newest first, for the library's resume bar (RecentVideos). */
+    /** The videos played last, newest first, for Continue watching at the top of the library (RecentVideos). */
     var recent by mutableStateOf(prefs.get("recent", "").split('\n').filter { it.isNotEmpty() })
         private set
 

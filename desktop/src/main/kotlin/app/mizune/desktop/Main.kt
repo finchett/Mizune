@@ -55,8 +55,7 @@ import java.io.File
 import kotlin.system.exitProcess
 
 private sealed interface Screen {
-    /** [focus]: a video in [folder] to scroll to and point out. */
-    data class Library(val folder: File?, val focus: File? = null) : Screen
+    data class Library(val folder: File?) : Screen
     data class Player(val video: File, val from: File?) : Screen
     data class Settings(val from: Screen) : Screen
     /** The first launch's welcome and setup. */
@@ -431,8 +430,6 @@ private fun Browse(
                             app, s.folder,
                             onOpenFolder = { navigate(Screen.Library(it)) },
                             onOpenVideo = { onOpenVideo(it, s.folder ?: it.parentFile) },
-                            focus = s.focus,
-                            onShowVideo = { navigate(Screen.Library(it.parentFile, focus = it)) },
                         )
                     }
                 },
