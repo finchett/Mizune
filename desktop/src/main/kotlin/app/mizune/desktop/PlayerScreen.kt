@@ -704,9 +704,9 @@ private val HiddenCursor = PointerIcon(
 
 /**
  * The bar along the bottom of the video, one compact row and the same in both layouts: play,
- * the time, the seek bar across the middle, then the line buttons, the volume, the menus and the panel, and
- * off macOS (where the green traffic light does it) full screen. [onScrubbing] tells while a
- * scrub is under way.
+ * the time, the seek bar across the middle, then the line buttons and the stop at the line's end,
+ * the volume, the menus and the panel, and off macOS (where the green traffic light does it) full
+ * screen. [onScrubbing] tells while a scrub is under way.
  */
 @Composable
 private fun Controls(
@@ -760,9 +760,9 @@ private fun Controls(
             )
         }
         LineButtons(app, session, color = muted, hoverColor = white)
-        VolumeControl(app.settings, color = muted, hoverColor = white, accent = accent)
         // the panel's footer has the same one, so it's only here while the panel is away
         if (app.settings.panelHidden) LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
+        VolumeControl(app.settings, color = muted, hoverColor = white, accent = accent)
         // on macOS the panel's header has the same cog, so it's only here while the panel is away
         if (ownsFrame || app.settings.panelHidden) TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
         ShaderMenu(app, session, onMenu, accent)
