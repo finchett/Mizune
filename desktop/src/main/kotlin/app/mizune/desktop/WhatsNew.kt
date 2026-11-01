@@ -100,12 +100,13 @@ private fun Pill(text: String, onClick: () -> Unit) {
         maxLines = 1,
         modifier = Modifier
             .padding(end = 10.dp)
-            .clip(RoundedCornerShape(50))
+            // squared off like the header's other controls and the cards below it, not a capsule
+            .clip(RoundedCornerShape(7.dp))
             .background(primary.copy(alpha = if (hovered) 0.22f else 0.13f))
             .hoverable(interaction)
             .clickable(interaction, indication = null, onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(horizontal = 12.dp, vertical = 5.dp),
+            .padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 
