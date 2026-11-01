@@ -27,6 +27,7 @@ import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.graphics.graphicsLayer
@@ -41,7 +42,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +55,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -111,6 +112,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.platform.LocalView
 import android.view.RoundedCorner
 import androidx.compose.ui.unit.Dp
+import androidx.compose.runtime.SideEffect
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
@@ -129,6 +131,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -163,6 +167,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.sign
 
 
 /** Seconds covered by dragging across the full width of the video at normal speed. */
@@ -202,74 +207,95 @@ private const val MAX_PANEL_FRACTION = 0.5f
  */
 private const val HIDE_PANEL_BELOW = MIN_PANEL_FRACTION / 2
 
-private val RESIZE_ZONE_WIDTH = 24.dp
+private val RESIZE_ZONE_WIDTH = 40.dp
+
+/** Held sideways, the zone is wider, so putting the panel away doesn't take aim. */
+private val SIDE_ZONE_WIDTH = 96.dp
+
+/** With the panel off screen, how far in from the screen's edge its edge is kept. */
+private val HIDDEN_EDGE_INSET = 20.dp
+
+/** How long the grip shows, put away, where the panel can be pulled back from. */
+private const val GRIP_SHOWN_MS = 1500L
+
+/** How long it shows for a video opened (or turned sideways) with the panel already away. */
+private const val GRIP_SHOWN_OPENING_MS = 400L
 
 /**
- * Invisible drag zone on the video/panel edge; a grip appears while it's touched, and faintly
- * while [hint] (where to drag the panel back from, with it off screen).
+ * Drags from anywhere along the video/panel edge move it: a finger put down within half of
+ * [zoneWidth] of [edge] (where the edge is, across it) and moved across. Watched ahead of
+ * what's under it, which still gets taps, holds and drags along the edge.
  */
-@Composable
-private fun ResizeHandle(
-    onDragStart: () -> Unit,
+private fun Modifier.edgeDrag(
+    vertical: Boolean,
+    zoneWidth: Dp,
+    edge: () -> Float,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
-    modifier: Modifier,
-    vertical: Boolean = false,
-    hint: Boolean = false,
-) {
-    var touched by remember { mutableStateOf(false) }
-    var dragging by remember { mutableStateOf(false) }
-    Box(
-        modifier
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    touched = true
-                    do {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                    } while (event.changes.any { it.pressed })
-                    touched = false
+) = pointerInput(vertical, zoneWidth) {
+    val zone = zoneWidth.toPx()
+    val slop = viewConfiguration.touchSlop
+    fun across(offset: Offset) = if (vertical) offset.y else offset.x
+    fun along(offset: Offset) = if (vertical) offset.x else offset.y
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        if (abs(across(down.position) - edge()) > zone / 2) return@awaitEachGesture
+        var dragging = false
+        try {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id }
+                if (change == null || !change.pressed) break
+                if (dragging) {
+                    onDrag(across(change.positionChange()))
+                    change.consume()
+                    continue
+                }
+                // a second finger (a pinch) or a move along the edge is for what's under it
+                if (event.changes.count { it.pressed } > 1) break
+                val moved = change.position - down.position
+                if (abs(along(moved)) > slop) break
+                if (abs(across(moved)) > slop) {
+                    dragging = true
+                    onDrag(across(moved) - sign(across(moved)) * slop)
+                    change.consume()
                 }
             }
-            .pointerInput(vertical) {
-                if (vertical) {
-                    detectVerticalDragGestures(
-                        onDragStart = { dragging = true; onDragStart() },
-                        onDragEnd = { dragging = false; onDragEnd() },
-                        onDragCancel = { dragging = false; onDragEnd() },
-                        onVerticalDrag = { change, dy ->
-                            change.consume()
-                            onDrag(dy)
-                        },
-                    )
-                } else {
-                    detectHorizontalDragGestures(
-                        onDragStart = { dragging = true; onDragStart() },
-                        onDragEnd = { dragging = false; onDragEnd() },
-                        onDragCancel = { dragging = false; onDragEnd() },
-                        onHorizontalDrag = { change, dx ->
-                            change.consume()
-                            onDrag(dx)
-                        },
-                    )
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        AnimatedVisibility(visible = touched || dragging || hint, enter = fadeIn(), exit = fadeOut()) {
-            Box(
-                Modifier
-                    .width(if (vertical) 48.dp else 5.dp)
-                    .height(if (vertical) 5.dp else 48.dp)
-                    .background(
-                        when {
-                            dragging -> MaterialTheme.colorScheme.primary
-                            touched -> Color(0xFF8A8E95)
-                            else -> Color(0x998A8E95)
-                        },
-                        RoundedCornerShape(3.dp),
-                    ),
-            )
+        } finally {
+            if (dragging) onDragEnd()
+        }
+    }
+}
+
+/**
+ * Rounds the right corners of the video that ends where this starts, [inset] in from the top and
+ * bottom: the corners' outsides, in [color], drawn just left of this.
+ */
+private fun DrawScope.videoEndCorners(radius: Float, inset: Float, color: Color) {
+    val top = inset
+    val bottom = size.height - inset
+    val corners = Path().apply {
+        moveTo(0f, top)
+        lineTo(0f, top + radius)
+        arcTo(Rect(Offset(-radius, top + radius), radius), 0f, -90f, false)
+        close()
+        moveTo(0f, bottom)
+        lineTo(0f, bottom - radius)
+        arcTo(Rect(Offset(-radius, bottom - radius), radius), 0f, 90f, false)
+        close()
+    }
+    drawPath(corners, color)
+}
+
+/**
+ * A grip where the panel can be pulled back from, with it off screen (see [edgeDrag]), shown
+ * while [visible]; nothing is drawn on the edge otherwise.
+ */
+@Composable
+private fun PanelGrip(visible: Boolean, modifier: Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
+            Box(Modifier.width(4.dp).height(28.dp).background(Color(0x998A8E95), RoundedCornerShape(3.dp)))
         }
     }
 }
@@ -579,6 +605,9 @@ fun PlayerScreen(
                             )
                         }
                     } else null,
+                    // as wide as it is with the panel off screen
+                    surfaceWidth = if (landscape) maxWidth - gap * 2 else null,
+                    roundRight = !(landscape && panelOnScreenBeside),
                     modifier = modifier,
                 )
             }
@@ -597,12 +626,57 @@ fun PlayerScreen(
             }
             if (landscape) {
                 val totalWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
-                val zonePx = with(LocalDensity.current) { RESIZE_ZONE_WIDTH.toPx() }
-                Box(Modifier.fillMaxSize()) {
+                val zonePx = with(LocalDensity.current) { SIDE_ZONE_WIDTH.toPx() }
+                val insetPx = with(LocalDensity.current) { HIDDEN_EDGE_INSET.toPx() }
+                val videoEndGap by animateDpAsState(if (panelHidden) gap else gap / 2, tween(220), label = "video end gap")
+                val screenColor = if (rounded) MaterialTheme.colorScheme.background else Color.Black
+                // put away, the panel shows for a moment where it can be pulled back from
+                var showGrip by remember { mutableStateOf(false) }
+                var opening by remember { mutableStateOf(true) }
+                LaunchedEffect(panelHidden) {
+                    val shown = if (opening) GRIP_SHOWN_OPENING_MS else GRIP_SHOWN_MS
+                    opening = false
+                    showGrip = panelHidden
+                    if (panelHidden) {
+                        delay(shown)
+                        showGrip = false
+                    }
+                }
+                // with the panel off screen the edge is kept a little in from the screen's, its zone
+                // running off it
+                fun edgeX() = (totalWidthPx * (1f - panelFraction.floatValue)).coerceAtMost(totalWidthPx - insetPx)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .edgeDrag(
+                            vertical = false,
+                            zoneWidth = SIDE_ZONE_WIDTH,
+                            edge = ::edgeX,
+                            onDrag = { dx ->
+                                panelFraction.floatValue = (panelFraction.floatValue - dx / totalWidthPx)
+                                    .coerceIn(0f, MAX_PANEL_FRACTION)
+                            },
+                            onDragEnd = {
+                                val hide = panelFraction.floatValue < HIDE_PANEL_BELOW
+                                val target = if (hide) 0f else panelFraction.floatValue.coerceIn(MIN_PANEL_FRACTION, MAX_PANEL_FRACTION)
+                                settle(panelFraction, target)
+                                hidePanel(hide)
+                                if (!hide) app.prefs.panelFraction = target
+                            },
+                        ),
+                ) {
                     Layout(
                         content = {
-                            videoArea(Modifier.padding(start = gap, top = gap, bottom = gap, end = if (panelHidden) gap else gap / 2))
+                            videoArea(Modifier.padding(start = gap, top = gap, bottom = gap, end = videoEndGap))
                             if (panelOnScreenBeside) {
+                                // the video surface runs on under the gap and the panel: cover it. The
+                                // video's right corners are rounded from here too, so they keep to the
+                                // edge as it moves; the picture under them lags it a frame.
+                                Box(
+                                    Modifier.background(screenColor).then(
+                                        if (rounded) Modifier.drawBehind { videoEndCorners(cardRadius.toPx(), gap.toPx(), screenColor) } else Modifier,
+                                    ),
+                                )
                                 sidePanel(Modifier.padding(start = gap / 2, top = gap, end = gap, bottom = gap).clip(panelShape))
                             }
                         },
@@ -616,43 +690,43 @@ fun PlayerScreen(
                         // narrower than its least, the panel keeps that width and goes off the edge,
                         // rather than squeezing its text
                         val panelLeast = (width * MIN_PANEL_FRACTION).roundToInt()
-                        val panel = measurables.getOrNull(1)?.measure(Constraints.fixed(maxOf(panelWidth, panelLeast), height))
+                        val coverStart = videoWidth - videoEndGap.roundToPx()
+                        val cover = measurables.getOrNull(1)?.measure(Constraints.fixed(width - coverStart, height))
+                        val panel = measurables.getOrNull(2)?.measure(Constraints.fixed(maxOf(panelWidth, panelLeast), height))
                         layout(width, height) {
                             video.place(0, 0)
+                            cover?.place(coverStart, 0)
                             panel?.place(videoWidth, 0)
                         }
                     }
-                    // invisible grab zone straddling the edge, mid-height; takes no layout space. With
-                    // the panel off screen it's at the screen's edge, kept from the back swipe.
-                    ResizeHandle(
-                        onDragStart = {},
-                        onDrag = { dx ->
-                            panelFraction.floatValue = (panelFraction.floatValue - dx / totalWidthPx)
-                                .coerceIn(0f, MAX_PANEL_FRACTION)
-                        },
-                        onDragEnd = {
-                            val hide = panelFraction.floatValue < HIDE_PANEL_BELOW
-                            val target = if (hide) 0f else panelFraction.floatValue.coerceIn(MIN_PANEL_FRACTION, MAX_PANEL_FRACTION)
-                            settle(panelFraction, target)
-                            hidePanel(hide)
-                            if (!hide) app.prefs.panelFraction = target
-                        },
-                        hint = panelHidden && paused,
+                    // mid-height on the edge, taking no layout space: the grip, and with the panel off
+                    // screen, the part of the zone kept from the back swipe
+                    PanelGrip(
+                        visible = showGrip,
                         modifier = Modifier
                             .align(Alignment.CenterStart)
-                            .offset {
-                                val x = totalWidthPx * (1f - panelFraction.floatValue) - zonePx / 2
-                                IntOffset(x.coerceAtMost(totalWidthPx - zonePx).roundToInt(), 0)
-                            }
-                            .width(RESIZE_ZONE_WIDTH)
+                            .offset { IntOffset((edgeX() - zonePx / 2).roundToInt(), 0) }
+                            .width(SIDE_ZONE_WIDTH)
                             .height(140.dp)
                             .systemGestureExclusion(),
                     )
                 }
             } else {
                 val totalHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
-                val zonePx = with(LocalDensity.current) { RESIZE_ZONE_WIDTH.toPx() }
-                Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .edgeDrag(
+                            vertical = true,
+                            zoneWidth = RESIZE_ZONE_WIDTH,
+                            edge = { totalHeightPx * videoFraction.floatValue },
+                            onDrag = { dy ->
+                                videoFraction.floatValue = (videoFraction.floatValue + dy / totalHeightPx)
+                                    .coerceIn(MIN_VIDEO_FRACTION, MAX_VIDEO_FRACTION)
+                            },
+                            onDragEnd = { app.prefs.portraitVideoFraction = videoFraction.floatValue },
+                        ),
+                ) {
                     Layout(
                         content = {
                             videoArea(Modifier.padding(start = gap, top = gap, end = gap, bottom = gap / 2))
@@ -670,21 +744,6 @@ fun PlayerScreen(
                             panel.place(0, videoHeight)
                         }
                     }
-                    // grab zone on the boundary, in the middle of the width
-                    ResizeHandle(
-                        vertical = true,
-                        onDragStart = {},
-                        onDrag = { dy ->
-                            videoFraction.floatValue = (videoFraction.floatValue + dy / totalHeightPx)
-                                .coerceIn(MIN_VIDEO_FRACTION, MAX_VIDEO_FRACTION)
-                        },
-                        onDragEnd = { app.prefs.portraitVideoFraction = videoFraction.floatValue },
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .offset { IntOffset(0, (totalHeightPx * videoFraction.floatValue - zonePx / 2).roundToInt()) }
-                            .height(RESIZE_ZONE_WIDTH)
-                            .width(160.dp),
-                    )
                 }
             }
         }
@@ -710,6 +769,10 @@ fun PlayerScreen(
  * double tap in the middle stops at the end of every line (the edges still jump), and a hold is
  * reported to [onHold]. Scrubbing is then on the seek line, while paused. The seek line's touch
  * strip reaches [bottomClear] further up than it would, out of the system's swipes.
+ * With [surfaceWidth], the video surface keeps that width, running on past the right edge (whatever
+ * is there must cover it), and the picture is kept to the part that shows: a surface that changes
+ * size lags the rest of the screen, so the video would jump as the panel moves.
+ * Without [roundRight], only the left corners are rounded: what's beside it rounds the others.
  */
 @Composable
 private fun VideoArea(
@@ -724,6 +787,8 @@ private fun VideoArea(
     lineGestures: Boolean,
     onHold: (Boolean) -> Unit,
     overlay: (@Composable BoxScope.(onTapVideo: () -> Unit) -> Unit)?,
+    surfaceWidth: Dp?,
+    roundRight: Boolean,
     modifier: Modifier,
 ) {
     val ended by session.ended.collectAsState()
@@ -855,8 +920,14 @@ private fun VideoArea(
     ) {
         val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
         val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        val rightMargin = surfaceWidth?.let { 1.0 - widthPx / with(LocalDensity.current) { it.toPx() } }?.coerceAtLeast(0.0) ?: 0.0
+        SideEffect { mpvView?.setRightMargin(rightMargin) }
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (surfaceWidth != null) {
+                Modifier.fillMaxHeight().wrapContentWidth(Alignment.Start, unbounded = true).width(surfaceWidth)
+            } else {
+                Modifier.fillMaxSize()
+            },
             factory = { ctx ->
                 MpvView(ctx).also { view ->
                     view.keepScreenOn = true
@@ -870,11 +941,12 @@ private fun VideoArea(
         if (rounded) {
             // SurfaceView ignores Compose clipping, so paint the corners over it instead
             Canvas(Modifier.fillMaxSize()) {
-                val radius = cardRadius.toPx()
+                val radius = CornerRadius(cardRadius.toPx())
+                val right = if (roundRight) radius else CornerRadius.Zero
                 val corners = Path().apply {
                     fillType = PathFillType.EvenOdd
                     addRect(Rect(0f, 0f, size.width, size.height))
-                    addRoundRect(RoundRect(0f, 0f, size.width, size.height, CornerRadius(radius)))
+                    addRoundRect(RoundRect(0f, 0f, size.width, size.height, radius, right, right, radius))
                 }
                 drawPath(corners, maskColor)
             }
@@ -976,7 +1048,12 @@ private fun VideoArea(
                 },
         )
 
-        overlay?.invoke(this) { tap(0) }
+        // fades in and out with the panel; the last overlay is kept for the fade out
+        val lastOverlay = remember { mutableStateOf(overlay) }
+        SideEffect { if (overlay != null) lastOverlay.value = overlay }
+        AnimatedVisibility(overlay != null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.matchParentSize()) {
+            Box(Modifier.fillMaxSize()) { (overlay ?: lastOverlay.value)?.invoke(this) { tap(0) } }
+        }
 
         // end of episode: offer the next one in the folder
         AnimatedVisibility(
