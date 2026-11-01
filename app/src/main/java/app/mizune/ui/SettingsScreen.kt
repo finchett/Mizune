@@ -11,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +36,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -271,31 +271,23 @@ fun SettingsScreen(app: App, onBack: () -> Unit) {
                             modifier = Modifier.padding(bottom = 12.dp),
                         )
                     }
-                }
-
-                SettingsSection("Appearance") {
-                    Column(
-                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text("Theme", style = MaterialTheme.typography.titleSmall)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            ThemeSwatch("System", null, app.appearance.theme == null) {
-                                app.appearance.updateTheme(null)
-                            }
-                            AppTheme.entries.forEach { theme ->
-                                ThemeSwatch(theme.label, theme, app.appearance.theme == theme) {
-                                    app.appearance.updateTheme(theme)
-                                }
-                            }
-                        }
-                    }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     SettingRow("Player tutorial", "The short tour of the gestures shown the first time you open a video.") {
                         OutlinedButton(onClick = { app.prefs.gestureGuideSeen = false }) { Text("Show again") }
+                    }
+                }
+
+                SettingsSection("Appearance") {
+                    // the desktop's picker: each family light beside dark, then Auto, Light or Dark
+                    CompositionLocalProvider(LocalMenuRowHeight provides 40.dp) {
+                        ThemePicker(
+                            app.appearance.family,
+                            app.appearance.mode,
+                            app.appearance::updateFamily,
+                            app.appearance::updateMode,
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                            columns = 3,
+                        )
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     SettingSwitchRow(

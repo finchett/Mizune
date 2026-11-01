@@ -48,9 +48,17 @@ class Prefs(context: Context) {
         get() = prefs.getString("peek_language", "en")?.takeIf { it.isNotEmpty() }
         set(value) = prefs.edit { putString("peek_language", value ?: "") }
 
-    var theme: String?
+    /** The single theme chosen before themes came in families, or "system"; read once to carry it over. */
+    val theme: String?
         get() = prefs.getString("theme", null)
-        set(value) = prefs.edit { putString("theme", value) }
+
+    var themeFamily: String?
+        get() = prefs.getString("theme_family", null)
+        set(value) = prefs.edit { putString("theme_family", value) }
+
+    var themeMode: String?
+        get() = prefs.getString("theme_mode", null)
+        set(value) = prefs.edit { putString("theme_mode", value) }
 
     /** Show the video and panel as rounded cards. */
     var roundedCorners: Boolean

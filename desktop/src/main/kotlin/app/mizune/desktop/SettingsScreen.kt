@@ -96,6 +96,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import app.mizune.ui.SectionLabel
 
 /** The panes of the settings screen, in the order they appear in its sidebar. */
 enum class SettingsPane(val label: String) {

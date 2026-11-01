@@ -51,8 +51,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.mandatorySystemGestures
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -126,7 +124,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.text.TextAutoSize
@@ -168,6 +165,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.sign
+import app.mizune.subs.detail
+import app.mizune.subs.shortName
 
 
 /** Seconds covered by dragging across the full width of the video at normal speed. */
@@ -1627,50 +1626,53 @@ private fun PlayerOptions(session: PlayerSession, onDismiss: () -> Unit) {
     val autoPause by session.autoPause.collectAsState()
     val landscapeLock by session.landscapeLock.collectAsState()
 
-    // one row per thing, labels down the left, so it fits a phone held either way round
+    // the desktop's menu, in the same groups, with rows a finger can hit
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(0.92f),
         ) {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Options", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Done") }
-                }
-                Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (audioTracks.isNotEmpty()) {
-                        TrackSelect(
-                            title = "Audio",
-                            current = audioTracks.firstOrNull { it.id == audioTrack }?.label ?: "None",
-                            options = audioTracks.map { track -> track.label to { session.selectAudio(track) } },
+            CompositionLocalProvider(LocalMenuRowHeight provides 44.dp) {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Options",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f).padding(start = 10.dp),
                         )
+                        TextButton(onClick = onDismiss) { Text("Done") }
+                    }
+                    MenuGroup("Picture", first = true)
+                    MenuSegments(listOf("Whole picture", "Fill the area"), if (fill) 1 else 0) { session.setFill(it == 1) }
+                    if (audioTracks.isNotEmpty()) {
+                        MenuGroup("Audio")
+                        audioTracks.forEach { track ->
+                            MenuChoice(track.name, track.id == audioTrack, track.detail) { session.selectAudio(track) }
+                        }
                     }
                     if (tracks.isEmpty()) {
-                        Text("No text subtitle tracks in this video.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        MenuGroup("Subtitles to study")
+                        MenuNote("No text subtitle tracks in this video.")
                     } else {
-                        TrackSelect(
-                            title = "Study",
-                            current = primary?.let(::trackLabel) ?: "None",
-                            options = tracks.map { track -> trackLabel(track) to { session.selectPrimary(track) } },
-                        )
-                        TrackSelect(
-                            title = "Peek",
-                            current = secondary?.let(::trackLabel) ?: "None",
-                            options = listOf("None" to { session.selectSecondary(null) }) +
-                                tracks.filter { it !== primary }.map { track -> trackLabel(track) to { session.selectSecondary(track) } },
-                        )
+                        MenuGroup("Subtitles to study")
+                        tracks.forEach { track ->
+                            MenuChoice(track.shortName, track === primary, track.detail) { session.selectPrimary(track) }
+                        }
+                        MenuGroup("Translation", note = "Hold to peek")
+                        MenuChoice("None", secondary == null) { session.selectSecondary(null) }
+                        tracks.filter { it !== primary }.forEach { track ->
+                            MenuChoice(track.shortName, track === secondary, track.detail) { session.selectSecondary(track) }
+                        }
                     }
                     // the shift between the buttons that change it; tapped, it goes back to none
-                    OptionRow("Timing") {
-                        Row(
-                            Modifier.weight(1f).height(40.dp).clip(OPTION_SHAPE).background(MaterialTheme.colorScheme.optionField),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                    MenuGroup("Timing")
+                    Row(
+                        Modifier.padding(horizontal = 4.dp).fillMaxWidth().height(44.dp).clip(OPTION_SHAPE)
+                            .background(MaterialTheme.colorScheme.optionField),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         listOf(-1.0 to "−1", -0.1 to "−.1").forEach { (delta, label) -> OffsetButton(label) { session.setOffset(offset + delta) } }
                         Text(
                             when {
@@ -1686,42 +1688,22 @@ private fun PlayerOptions(session: PlayerSession, onDismiss: () -> Unit) {
                                 .wrapContentHeight(),
                         )
                         listOf(0.1 to "+.1", 1.0 to "+1").forEach { (delta, label) -> OffsetButton(label) { session.setOffset(offset + delta) } }
-                        }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OptionChip("Fill the area", fill, Modifier.weight(1f)) { session.setFill(!fill) }
-                        OptionChip("Stop at each line", autoPause, Modifier.weight(1f)) { session.setAutoPause(!autoPause) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OptionChip("Lock landscape", landscapeLock, Modifier.weight(1f)) { session.setLandscapeLock(!landscapeLock) }
-                        Spacer(Modifier.weight(1f))
-                    }
+                    MenuGroup("While watching")
+                    MenuChoice("Stop at each line", autoPause) { session.setAutoPause(!autoPause) }
+                    MenuChoice("Lock landscape", landscapeLock) { session.setLandscapeLock(!landscapeLock) }
                 }
             }
         }
     }
 }
 
-/** The corners of every control in the options. */
-private val OPTION_SHAPE = RoundedCornerShape(10.dp)
+/** The corners of the timing control, as the menu's segments have. */
+private val OPTION_SHAPE = RoundedCornerShape(8.dp)
 
-/** What the options' controls sit on: a faint lift off the dialog. */
+/** What the timing control sits on: a faint lift off the dialog, as the segments do. */
 private val ColorScheme.optionField: Color
-    get() = onSurface.copy(alpha = 0.07f)
-
-/** A row of the options: its [title] down the left, then [content]. */
-@Composable
-private fun OptionRow(title: String, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(64.dp),
-        )
-        content()
-    }
-}
+    get() = onSurface.copy(alpha = 0.06f)
 
 /** One of the segments of the timing control that shift the subtitles. */
 @Composable
@@ -1733,69 +1715,6 @@ private fun OffsetButton(label: String, onClick: () -> Unit) {
         textAlign = TextAlign.Center,
         modifier = Modifier.width(44.dp).fillMaxHeight().clickable(onClick = onClick).wrapContentHeight(),
     )
-}
-
-/** An on/off option as a chip, ticked while on. */
-@Composable
-private fun OptionChip(label: String, on: Boolean, modifier: Modifier, onToggle: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        modifier.height(40.dp).clip(OPTION_SHAPE)
-            .background(if (on) scheme.primary.copy(alpha = 0.18f) else scheme.optionField)
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(if (on) "✓" else "", color = scheme.primary, modifier = Modifier.width(12.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/** A track choice: [title] down the left, then the [current] one on a button that opens a menu of [options]. */
-@Composable
-private fun TrackSelect(title: String, current: String, options: List<Pair<String, () -> Unit>>) {
-    var open by remember { mutableStateOf(false) }
-    OptionRow(title) {
-        Box(Modifier.weight(1f)) {
-            Row(
-                Modifier.fillMaxWidth().height(40.dp).clip(OPTION_SHAPE)
-                    .background(MaterialTheme.colorScheme.optionField)
-                    .clickable { open = true }
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    current,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text("▾", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            DropdownMenu(
-                expanded = open,
-                onDismissRequest = { open = false },
-                shape = OPTION_SHAPE,
-                containerColor = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            ) {
-                options.forEach { (label, select) ->
-                    DropdownMenuItem(
-                        text = { Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        leadingIcon = { Text(if (label == current) "✓" else "", color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(12.dp)) },
-                        onClick = { select(); open = false },
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun trackLabel(track: SubtitleTrack): String {
-    val language = track.language?.let { " · $it" }.orEmpty()
-    return "${track.name}$language · ${track.cues.size} lines"
 }
 
 /** With Anki on, a button on each of [lookup]'s entries that makes a card of it. */

@@ -26,7 +26,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -123,24 +122,6 @@ private val DesktopTypography = Typography().let { base ->
         labelMedium = base.labelMedium.sized(12, 16, FontWeight.Medium),
         labelSmall = base.labelSmall.sized(11, 14, FontWeight.Medium),
     )
-}
-
-/** A quiet label over a group: small capitals, spaced out, with an optional note at the far end. */
-@Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier, note: String? = null) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-        Text(
-            text.uppercase(),
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            letterSpacing = 1.4.sp,
-            fontWeight = FontWeight.Medium,
-            color = muted,
-            modifier = Modifier.weight(1f),
-        )
-        note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = muted.copy(alpha = 0.8f)) }
-    }
 }
 
 /** A text action: no button chrome, a tint on hover. */

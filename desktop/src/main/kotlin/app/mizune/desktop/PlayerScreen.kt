@@ -132,6 +132,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Cursor
 import java.io.File
+import app.mizune.ui.MenuGroup
+import app.mizune.ui.MenuNote
+import app.mizune.ui.MenuChoice
+import app.mizune.ui.MenuDisclosure
+import app.mizune.ui.MenuSegments
 
 /** Keyboard actions the window forwards to the player. */
 class PlayerKeys {
