@@ -1626,12 +1626,15 @@ private fun PlayerOptions(session: PlayerSession, onDismiss: () -> Unit) {
     val autoPause by session.autoPause.collectAsState()
     val landscapeLock by session.landscapeLock.collectAsState()
 
+    // on its side the phone is short, so the card goes wide enough for two columns
+    val configuration = LocalConfiguration.current
+    val sideways = configuration.screenWidthDp > configuration.screenHeightDp
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.92f),
+            modifier = Modifier.widthIn(max = if (sideways) 760.dp else 480.dp).fillMaxWidth(if (sideways) 0.9f else 0.92f),
         ) {
             PlayerOptionsCard(
                 fill = fill,

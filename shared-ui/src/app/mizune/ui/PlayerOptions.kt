@@ -7,7 +7,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -36,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.mizune.media.AudioTrack
 import app.mizune.subs.SubtitleTrack
@@ -78,32 +81,47 @@ fun PlayerOptionsCard(
             Text("Options", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = onDone) { Text("Done") }
         }
-        Column(Modifier.padding(end = 8.dp)) {
-            Label("Picture", first = true)
-            CompositionLocalProvider(LocalMenuRowHeight provides 44.dp) {
-                MenuSegments(listOf("Whole picture", "Fill the area"), if (fill) 1 else 0, Modifier) { onFill(it == 1) }
+        BoxWithConstraints(Modifier.padding(end = 8.dp)) {
+            // a phone on its side is short: the groups go side by side, closer together
+            val wide = maxWidth >= TWO_COLUMNS
+            val gap = if (wide) 12.dp else 18.dp
+            val rowHeight = if (wide) 46.dp else 52.dp
+
+            @Composable
+            fun picture(first: Boolean) {
+                Label("Picture", if (first) 4.dp else gap)
+                CompositionLocalProvider(LocalMenuRowHeight provides 44.dp) {
+                    MenuSegments(listOf("Whole picture", "Fill the area"), if (fill) 1 else 0, Modifier) { onFill(it == 1) }
+                }
             }
-            if (audioTracks.isNotEmpty()) {
-                Label("Audio")
+
+            @Composable
+            fun audio() {
+                if (audioTracks.isEmpty()) return
+                Label("Audio", gap)
                 ChoiceField(open == "audio", { toggle("audio") }, audioTracks.map { track ->
                     Choice(track.name, track.detail, track.id == audioTrack) { onAudio(track) }
                 })
             }
-            Label("Subtitles to study")
-            if (tracks.isEmpty()) {
-                Field {
-                    Text(
-                        "No text subtitle tracks in this video.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
-                    )
+
+            @Composable
+            fun subtitles(first: Boolean) {
+                Label("Subtitles to study", if (first) 4.dp else gap)
+                if (tracks.isEmpty()) {
+                    Field {
+                        Text(
+                            "No text subtitle tracks in this video.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+                        )
+                    }
+                    return
                 }
-            } else {
                 ChoiceField(open == "study", { toggle("study") }, tracks.map { track ->
                     Choice(track.shortName, track.detail, track === primary) { onPrimary(track) }
                 })
-                Label("Translation", note = "Hold to peek")
+                Label("Translation", gap, note = "Hold to peek")
                 ChoiceField(
                     open == "translation",
                     { toggle("translation") },
@@ -113,23 +131,56 @@ fun PlayerOptionsCard(
                         },
                 )
             }
-            Label("Timing")
-            TimingField(offset, onOffset)
-            Label("While watching")
-            Field {
-                SwitchRow("Stop at each line", autoPause, onAutoPause)
-                HorizontalDivider(Modifier.padding(start = 14.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                SwitchRow("Lock landscape", landscapeLock, onLandscapeLock)
+
+            @Composable
+            fun timing() {
+                Label("Timing", gap)
+                TimingField(offset, onOffset)
+            }
+
+            @Composable
+            fun watching() {
+                Label("While watching", gap)
+                Field {
+                    SwitchRow("Stop at each line", autoPause, onAutoPause, rowHeight)
+                    HorizontalDivider(Modifier.padding(start = 14.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    SwitchRow("Lock landscape", landscapeLock, onLandscapeLock, rowHeight)
+                }
+            }
+
+            if (wide) {
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        picture(first = true)
+                        audio()
+                        timing()
+                    }
+                    Column(Modifier.weight(1f)) {
+                        subtitles(first = true)
+                        watching()
+                    }
+                }
+            } else {
+                Column {
+                    picture(first = true)
+                    audio()
+                    subtitles(first = false)
+                    timing()
+                    watching()
+                }
             }
         }
     }
 }
 
+/** How wide the card is before its groups go side by side, in two columns. */
+private val TWO_COLUMNS = 600.dp
+
 private class Choice(val title: String, val detail: String?, val selected: Boolean, val onClick: () -> Unit)
 
 @Composable
-private fun Label(text: String, note: String? = null, first: Boolean = false) =
-    SectionLabel(text, Modifier.padding(start = 4.dp, end = 4.dp, top = if (first) 4.dp else 18.dp, bottom = 8.dp), note)
+private fun Label(text: String, top: Dp, note: String? = null) =
+    SectionLabel(text, Modifier.padding(start = 4.dp, end = 4.dp, top = top, bottom = 8.dp), note)
 
 /** What every option sits in: a faint lift off the card, as the segments have. */
 @Composable
@@ -221,9 +272,9 @@ private fun TimingField(offset: Double, onOffset: (Double) -> Unit) {
 }
 
 @Composable
-private fun SwitchRow(title: String, on: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(title: String, on: Boolean, onChange: (Boolean) -> Unit, height: Dp) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { onChange(!on) }.padding(start = 14.dp, end = 10.dp),
+        Modifier.fillMaxWidth().heightIn(min = height).clickable { onChange(!on) }.padding(start = 14.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
