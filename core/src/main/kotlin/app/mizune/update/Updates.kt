@@ -95,11 +95,14 @@ object Updates {
      * Downloads [asset] to [target], through a .part file, and checks its size and SHA-256 before
      * it takes the final name. A file already there with the right hash is kept as it is.
      */
-    fun download(asset: UpdateAsset, target: File, onProgress: (Float) -> Unit = {}): File {
-        if (target.isFile && target.length() == asset.size && sha256(target) == asset.sha256) return target
+    class DownloadDeferred : IOException("Waiting for an unmetered connection")
+
+    fun download(asset: UpdateAsset, target: File, mayDownload: () -> Boolean = { true }, onProgress: (Float) -> Unit = {}): File {
+        if (downloaded(asset, target)) return target
         target.parentFile.mkdirs()
         val part = File(target.path + ".part")
         val digest = MessageDigest.getInstance("SHA-256")
+        if (!mayDownload()) throw DownloadDeferred()
         open(asset.url).let { connection ->
             try {
                 connection.inputStream.use { input ->
@@ -107,6 +110,7 @@ object Updates {
                         val buffer = ByteArray(1 shl 16)
                         var total = 0L
                         while (true) {
+                            if (!mayDownload()) throw DownloadDeferred()
                             val read = input.read(buffer)
                             if (read < 0) break
                             output.write(buffer, 0, read)
@@ -130,6 +134,10 @@ object Updates {
         if (!part.renameTo(target)) throw IOException("couldn't move ${part.name} into place")
         return target
     }
+
+    /** True when [target] already holds the whole of [asset]. */
+    fun downloaded(asset: UpdateAsset, target: File): Boolean =
+        target.isFile && target.length() == asset.size && sha256(target) == asset.sha256
 
     fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")

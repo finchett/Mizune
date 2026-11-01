@@ -309,6 +309,23 @@ fun SettingsScreen(app: App, onBack: () -> Unit) {
                     AnkiSettings(app)
                 }
 
+                SettingsSection("Updates") {
+                    SettingSwitchRow(
+                        title = "Update automatically",
+                        description = "Downloads new versions in the background, over connections that aren't metered.",
+                        initial = app.prefs.autoUpdate,
+                    ) {
+                        app.prefs.autoUpdate = it
+                        app.updater.checkNow()
+                    }
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingSwitchRow(
+                        title = "Show updates in the header",
+                        description = "A new version shows at the top of the library, as well as here.",
+                        initial = app.prefs.updatesInHeader,
+                    ) { app.prefs.updatesInHeader = it }
+                }
+
                 SettingsSection("Privacy") {
                     SettingSwitchRow(
                         title = "Send anonymous usage counts",
@@ -338,7 +355,8 @@ fun SettingsScreen(app: App, onBack: () -> Unit) {
                         context.packageManager.getPackageInfo(context.packageName, 0).versionName
                     }.getOrNull() ?: ""
                 }
-                AppFooter(version)
+                val update by app.updater.state.collectAsState()
+                AppFooter(version, update) { UpdatePill(app) }
 
                 Text(
                     "Bundled dictionary: JMdict, © Electronic Dictionary Research and Development Group, used " +
