@@ -24,53 +24,70 @@ class Thumbnails(cacheDir: File) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Frame>) = size > 200
     }
 
-    /** A thumbnail and the position it was taken at, 0 for one from a fifth of the way in. */
+    /** A thumbnail and the position it was taken at: 0 for a video's own frame, which isn't taken again. */
     private class Frame(val image: ImageBitmap, val at: Double)
 
     /** Bumped when a video's thumbnail appears, so only that card recomposes. */
     val versions = mutableStateMapOf<String, Long>()
 
-    /** The thumbnail if it is in memory, from wherever it was taken; otherwise null, and [request] will fetch or make it. */
-    fun cached(video: File): ImageBitmap? = synchronized(memory) { memory[video.path]?.image }
+    /**
+     * The thumbnail if it is in memory; otherwise null, and [request] or [requestLeftOff] will
+     * fetch or make it. [leftOff] for the frame from where the video was left, else its own.
+     */
+    fun cached(video: File, leftOff: Boolean = false): ImageBitmap? = synchronized(memory) { memory[keyOf(video, leftOff)]?.image }
+
+    /** Loads [video]'s own thumbnail from disk, or generates it from [start] (an mpv position). It's kept as it is from then on. */
+    fun request(video: File, start: String) = load(video, leftOff = false) {
+        fileFor(video, 0.0).also { if (!it.exists()) generate(video, it, start) }
+    }
 
     /**
-     * Loads [video]'s thumbnail from disk, or generates it: from [at] seconds in, where it was left
-     * off, or a fifth of the way in for 0. One taken more than [CLOSE] seconds from [at] is taken
-     * again, so a video watched further on shows where it's got to.
+     * Loads or generates the frame [at] seconds into [video], where it was left, for Continue
+     * watching. It's kept beside the video's own thumbnail, and taken again once the video has
+     * been watched more than [CLOSE] seconds past it.
      */
-    fun request(video: File, at: Double) {
-        if (synchronized(memory) { memory[video.path] }?.let { close(it.at, at) } == true) return
-        synchronized(queued) { if (!queued.add(video.path)) return }
-        worker.execute {
-            try {
-                val taken = framesOf(video)
-                val file = taken.firstOrNull { close(atOf(it), at) } ?: fileFor(video, at).also { file ->
-                    generate(video, file, if (at > 0) at.toString() else "20%")
-                    // the old frame stays until the new one is there
-                    if (file.exists()) taken.forEach(File::delete)
-                }
-                val image = runCatching { Image.makeFromEncoded(file.readBytes()).toComposeImageBitmap() }.getOrNull()
-                    ?: return@execute
-                synchronized(memory) { memory[video.path] = Frame(image, atOf(file)) }
-                Snapshot.withMutableSnapshot { versions[video.path] = System.nanoTime() }
-            } finally {
-                synchronized(queued) { queued.remove(video.path) }
+    fun requestLeftOff(video: File, at: Double) {
+        if (synchronized(memory) { memory[keyOf(video, true)] }?.let { close(it.at, at) } == true) return
+        load(video, leftOff = true) {
+            val taken = leftOffFrames(video)
+            taken.firstOrNull { close(atOf(it), at) } ?: fileFor(video, at).also { file ->
+                generate(video, file, at.toString())
+                // the old frame stays until the new one is there
+                if (file.exists()) taken.forEach(File::delete)
             }
         }
     }
 
+    private fun load(video: File, leftOff: Boolean, frame: () -> File) {
+        val key = keyOf(video, leftOff)
+        synchronized(queued) { if (!queued.add(key)) return }
+        worker.execute {
+            try {
+                val file = frame()
+                val image = runCatching { Image.makeFromEncoded(file.readBytes()).toComposeImageBitmap() }.getOrNull()
+                    ?: return@execute
+                synchronized(memory) { memory[key] = Frame(image, atOf(file)) }
+                Snapshot.withMutableSnapshot { versions[video.path] = System.nanoTime() }
+            } finally {
+                synchronized(queued) { queued.remove(key) }
+            }
+        }
+    }
+
+    private fun keyOf(video: File, leftOff: Boolean) = if (leftOff) video.path + "@" else video.path
+
     private fun close(a: Double, b: Double) = kotlin.math.abs(a - b) <= CLOSE
 
     // a replaced or re-encoded file gets a new thumbnail
-    private fun keyOf(video: File) = hash("${video.path}|${video.length()}|${video.lastModified()}")
+    private fun nameOf(video: File) = hash("${video.path}|${video.length()}|${video.lastModified()}")
 
-    /** Where a frame taken [at] seconds in goes: the position follows an @ in its name, none for 0. */
+    /** Where a frame taken [at] seconds in goes: the position follows an @ in its name; 0 is the video's own. */
     private fun fileFor(video: File, at: Double) =
-        File(directory, keyOf(video) + (if (at > 0) "@${at.toLong()}" else "") + ".jpg")
+        File(directory, nameOf(video) + (if (at > 0) "@${at.toLong()}" else "") + ".jpg")
 
-    private fun framesOf(video: File): List<File> {
-        val key = keyOf(video)
-        return directory.listFiles { file -> file.name == "$key.jpg" || file.name.startsWith("$key@") }.orEmpty().toList()
+    private fun leftOffFrames(video: File): List<File> {
+        val name = nameOf(video)
+        return directory.listFiles { file -> file.name.startsWith("$name@") }.orEmpty().toList()
     }
 
     private fun atOf(file: File) = file.nameWithoutExtension.substringAfter('@', "0").toDoubleOrNull() ?: 0.0

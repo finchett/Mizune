@@ -245,6 +245,7 @@ private fun FolderContents(
                 Card(
                     app = app,
                     thumbnailOf = item.video,
+                    leftOff = true,
                     badge = null,
                     progress = item.progress,
                     title = item.show ?: item.title,
@@ -303,6 +304,8 @@ private fun Card(
     subtitle: String?,
     onClick: () -> Unit,
     folder: Boolean = false,
+    // the frame from where it was left, not the video's own
+    leftOff: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
@@ -319,7 +322,7 @@ private fun Card(
                 .border(1.5.dp, ring, shape),
             contentAlignment = Alignment.Center,
         ) {
-            val image = thumbnailOf?.let { rememberThumbnail(app, it) }
+            val image = thumbnailOf?.let { rememberThumbnail(app, it, leftOff) }
             if (image != null) {
                 Image(image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else if (folder) {
@@ -376,12 +379,20 @@ private fun count(n: Int, noun: String) = when (n) {
     else -> "$n ${noun}s"
 }
 
-/** A frame from [video]: where you left off, or a fifth of the way in if unwatched. */
+/**
+ * A frame from [video]: its own, a fifth of the way in and kept, so it never shows how far you
+ * got; or with [leftOff], where it was left now, for Continue watching.
+ */
 @Composable
-private fun rememberThumbnail(app: DesktopApp, video: File): ImageBitmap? {
+private fun rememberThumbnail(app: DesktopApp, video: File, leftOff: Boolean = false): ImageBitmap? {
     val version = app.thumbnails.versions[video.path]
     val position = app.settings.position(video.absolutePath)
-    // again when it's been watched further on: Continue watching shows where it was left
-    LaunchedEffect(video, position) { app.thumbnails.request(video, position) }
-    return remember(video, version) { app.thumbnails.cached(video) }
+    LaunchedEffect(video, if (leftOff) position else null) {
+        if (leftOff && position > 0) {
+            app.thumbnails.requestLeftOff(video, position)
+        } else if (app.thumbnails.cached(video) == null) {
+            app.thumbnails.request(video, "20%")
+        }
+    }
+    return remember(video, version) { app.thumbnails.cached(video, leftOff && position > 0) }
 }
