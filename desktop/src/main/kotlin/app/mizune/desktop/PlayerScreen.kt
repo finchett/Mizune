@@ -869,10 +869,11 @@ private fun ShaderMenu(app: DesktopApp, session: PlayerSession, onMenu: (Boolean
     val settings = app.settings
     val videoHeight by session.player.videoHeight.collectAsState()
     var open by remember { mutableStateOf(false) }
-    // the modes stay folded away unless one has been picked
+    // the modes are folded away each time the menu opens
     var advanced by remember { mutableStateOf(false) }
     fun show(value: Boolean) {
         open = value
+        if (value) advanced = false
         onMenu(value)
     }
     Box {
@@ -902,8 +903,8 @@ private fun ShaderMenu(app: DesktopApp, session: PlayerSession, onMenu: (Boolean
                 } else null
                 item(preset.label, settings.anime4kPreset == preset, note) { settings.updateAnime4kPreset(preset) }
             }
-            MenuDisclosure("Advanced", open = advanced || settings.anime4kMode != null) { advanced = !advanced }
-            if (advanced || settings.anime4kMode != null) {
+            MenuDisclosure("Advanced", open = advanced) { advanced = !advanced }
+            if (advanced) {
                 MenuGroup("Mode")
                 item("By video", settings.anime4kMode == null, Anime4K.modeFor(videoHeight).label) { settings.updateAnime4kMode(null) }
                 Anime4K.Mode.entries.forEach { mode ->

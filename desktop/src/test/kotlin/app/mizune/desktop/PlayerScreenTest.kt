@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
@@ -256,24 +257,36 @@ class PlayerScreenTest {
                 assertFalse("modes start folded away", shows("Mode B"))
                 // Auto says which of Fast and Best it went with
                 val autoPick = if (Anime4K.fast(Anime4K.Preset.AUTO, Anime4K.hardware)) "Fast" else "Best"
-                assertTrue(shows("Auto · $autoPick"))
+                // as the detail at the end of its row
+                onNode(hasText("Auto", substring = false) and hasText(autoPick, substring = false)).assertExists()
                 shot("6-shader-menu")
-                onNodeWithText("Fast").performClick()
+                // the Fast row, not Auto's detail
+                onNode(hasText("Fast") and !hasText("Auto")).performClick()
                 assertEquals(Anime4K.Preset.FAST, app.settings.anime4kPreset)
                 val expected = Anime4K.shaders(byVideo, fast = true).map { it.name }
                 waitUntil(timeoutMillis = 5_000) { expected.all { it in shaders() } }
 
-                // Advanced: Mode B instead of following the video
-                onNodeWithContentDescription("Shaders").performClick()
+                // Advanced: Mode B instead of following the video, in the menu still up
                 onNodeWithText("Advanced").performClick()
                 waitUntil(timeoutMillis = 5_000) { shows("Mode B") && shows("By video") }
                 shot("6-shader-advanced")
-                onNodeWithText("Mode B").performClick()
+                onNode(hasText("Mode B") and !hasText("By video")).performClick()
                 assertEquals(Anime4K.Mode.B, app.settings.anime4kMode)
                 waitUntil(timeoutMillis = 5_000) { "Anime4K_Restore_CNN_Soft_M.glsl" in shaders() }
+                // a choice leaves the menu up, and Advanced still folds with a mode picked
+                onNodeWithText("Advanced").performClick()
+                waitUntil(timeoutMillis = 5_000) { !shows("By video") }
+                assertEquals(Anime4K.Mode.B, app.settings.anime4kMode)
+                // and they're folded again when the menu next opens, even with one picked
+                onNodeWithText("Advanced").performClick()
+                waitUntil(timeoutMillis = 5_000) { shows("By video") }
+                onNodeWithContentDescription("Shaders").performClick()
+                waitUntil(timeoutMillis = 5_000) { !shows("Advanced") }
+                onNodeWithContentDescription("Shaders").performClick()
+                waitUntil(timeoutMillis = 5_000) { shows("Advanced") }
+                assertFalse("modes start folded with one picked", shows("By video"))
 
                 // Off clears them
-                onNodeWithContentDescription("Shaders").performClick()
                 onNodeWithText("Off").performClick()
                 waitUntil(timeoutMillis = 5_000) { shaders().isEmpty() }
             }
