@@ -837,13 +837,16 @@ private fun VideoArea(
     var scrubSpeed by remember { mutableStateOf(1.0) }
     var showOptions by remember { mutableStateOf(false) }
 
-    // a word in the middle for a moment: fill or fit, or stop at end of line on or off
+    // a word in the middle for a moment: fill or fit, or stop at end of line on or off; the word
+    // stays while it fades
     var noticeCount by remember { mutableIntStateOf(0) }
-    var notice by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf("") }
+    var showNotice by remember { mutableStateOf(false) }
     LaunchedEffect(noticeCount) {
         if (noticeCount > 0) {
+            showNotice = true
             delay(900)
-            notice = null
+            showNotice = false
         }
     }
     fun toggleStopAtEnd() {
@@ -1127,9 +1130,9 @@ private fun VideoArea(
         }
 
         // fill/fit or stop-at-end notice
-        AnimatedVisibility(notice != null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.Center)) {
+        AnimatedVisibility(showNotice, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.Center)) {
             Text(
-                notice.orEmpty(),
+                notice,
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.videoPill(),
@@ -1410,14 +1413,16 @@ private fun StudyPanel(
         }
     }
 
-    // brief "Stop at end: on/off" notice after a double tap
+    // brief "Stop at end: on/off" notice after a double tap; the text stays while it fades
     val autoPause by session.autoPause.collectAsState()
-    var notice by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf("") }
+    var showNotice by remember { mutableStateOf(false) }
     var noticeCount by remember { mutableIntStateOf(0) }
     LaunchedEffect(noticeCount) {
         if (noticeCount > 0) {
+            showNotice = true
             delay(1200)
-            notice = null
+            showNotice = false
         }
     }
     val panelScope = rememberCoroutineScope()
@@ -1522,22 +1527,23 @@ private fun StudyPanel(
 
             // the stop-at-end notice, or what adding a card is doing; the last one stays while it fades
             val ankiStatus by app.anki.status.collectAsState()
-            val message = notice ?: ankiStatus?.message
-            val shown = remember { object { var text = ""; var failed = false } }
-            if (message != null) {
-                shown.text = message
-                shown.failed = notice == null && ankiStatus is AnkiCards.Status.Failed
+            val lastAnki = remember { object { var status: AnkiCards.Status? = null } }
+            when {
+                showNotice -> lastAnki.status = null
+                ankiStatus != null -> lastAnki.status = ankiStatus
             }
             AnimatedVisibility(
-                visible = message != null,
+                visible = showNotice || ankiStatus != null,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp).zIndex(2f),
             ) {
                 val scheme = MaterialTheme.colorScheme
+                // read here, so the text follows a change while it's up
+                val anki = if (showNotice) null else ankiStatus ?: lastAnki.status
                 Text(
-                    shown.text,
-                    color = if (shown.failed) scheme.error else scheme.onSurface,
+                    anki?.message ?: notice,
+                    color = if (anki is AnkiCards.Status.Failed) scheme.error else scheme.onSurface,
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier
                         .background(scheme.surfaceVariant, RoundedCornerShape(10.dp))
