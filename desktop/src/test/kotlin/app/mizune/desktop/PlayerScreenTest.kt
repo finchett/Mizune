@@ -117,6 +117,15 @@ class PlayerScreenTest {
         }
     }
 
+    /**
+     * Starts playback as the screen does once it's ready, and waits for it: a session opens
+     * paused, so until then "paused" says nothing about where a line stopped.
+     */
+    private fun PlayerSession.startPlaying() {
+        start(play = true)
+        waitFor("playback to start") { !paused.value }
+    }
+
     /** Polls [condition], since playback moves on mpv's own threads. */
     private fun waitFor(what: String, timeoutMillis: Long = 15_000, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMillis
@@ -231,7 +240,8 @@ class PlayerScreenTest {
                         PlayerScreen(app, session, keys, onBack = {}, onOpenVideo = {})
                     }
                 }
-                waitUntil(timeoutMillis = 15_000) { session.player.videoHeight.value > 0 }
+                // playing, once the screen is ready and the cover lifts
+                waitUntil(timeoutMillis = 15_000) { session.player.videoHeight.value > 0 && !session.paused.value }
                 val byVideo = Anime4K.modeFor(session.player.videoHeight.value)
                 // paused, the controls stay up
                 session.pause()
@@ -276,6 +286,7 @@ class PlayerScreenTest {
             en = srt(1.0..3.0 to "The first line.", 6.0..8.0 to "The second line."),
         ) {
             session.setTracks(app.loadSubtitles(session.video))
+            session.startPlaying()
             session.playLine(0, stopAtEnd = true)
             waitFor("the first line to stop at its end") { session.paused.value }
             val stopped = session.position.value
@@ -375,6 +386,7 @@ class PlayerScreenTest {
         ) {
             app.settings.updateAutoPause(true)
             session.setTracks(app.loadSubtitles(session.video))
+            session.startPlaying()
 
             // the setting stops playback at the end of the line it plays
             session.playLine(0, stopAtEnd = true)

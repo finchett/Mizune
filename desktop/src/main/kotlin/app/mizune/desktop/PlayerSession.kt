@@ -86,14 +86,20 @@ class PlayerSession(
     /** Paused by a line ending rather than by the user, so the controls can stay out of the way. */
     val stoppedAtLine: StateFlow<Boolean> = _stoppedAtLine.asStateFlow()
     private var lastCopiedLine = -1
+    /**
+     * Whether [start] has been called. Before it the position is the one about to be played from,
+     * or not yet known, so it's not saved over the one already saved.
+     */
+    @Volatile private var started = false
 
     init {
         player.property("alang", SubtitleFiles.mpvLanguages(settings.targetLanguage))
         // the player is shared, so a track picked in the last video mustn't carry over
         player.property("aid", "auto")
         player.property("start", settings.position(path).toString())
+        // it waits at its saved position until the screen is ready to be seen (start)
+        player.setPaused(true)
         player.load(path)
-        player.setPaused(false)
         scope.launch { player.position.collect(::updateLine) }
         // a track picked for this video beats the language setting, once mpv has listed the tracks
         scope.launch {
@@ -103,6 +109,12 @@ class PlayerSession(
         }
         // save on every pause, so a crash or force quit loses little
         scope.launch { player.paused.drop(1).collect { if (it) savePosition() } }
+    }
+
+    /** Called once the player can be seen: plays the video, unless [play] is false (the tutorial holds it). */
+    fun start(play: Boolean) {
+        started = true
+        if (play) play()
     }
 
     fun close() {
@@ -238,6 +250,7 @@ class PlayerSession(
     }
 
     fun savePosition() {
+        if (!started) return
         settings.savePosition(path, player.position.value, player.duration.value)
     }
 

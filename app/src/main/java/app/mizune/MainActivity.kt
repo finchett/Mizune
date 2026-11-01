@@ -62,10 +62,11 @@ class MainActivity : ComponentActivity() {
                 }
                 AnimatedContent(
                     targetState = screen,
-                    // the same transitions as the desktop app, from Motion
+                    // the same transitions as the desktop app, from Motion, except into the player:
+                    // the video's surface can't fade in with it, so the player opens under the library
                     transitionSpec = {
                         when {
-                            targetState is Screen.Player -> Motion.intoPlayer()
+                            targetState is Screen.Player -> Motion.intoPlayerUnder()
                             initialState is Screen.Player -> Motion.outOfPlayer()
                             // library and settings: neither slides, one dissolves into the other
                             else -> Motion.crossfade()

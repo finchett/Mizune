@@ -138,6 +138,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.zIndex
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -164,8 +165,10 @@ import app.mizune.subs.translationFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.sign
 
@@ -405,6 +408,8 @@ fun PlayerScreen(
     }
 
     var subtitleStatus by remember { mutableStateOf<String?>("Reading subtitles…") }
+    // the text tracks, read or not; picture tracks come in later
+    var subtitlesRead by remember { mutableStateOf(false) }
     LaunchedEffect(video) {
         // the languages chosen in settings; a track picked for this video still wins
         fun useTracks(list: List<SubtitleTrack>) {
@@ -415,9 +420,11 @@ fun PlayerScreen(
         val text = withContext(Dispatchers.IO) { runCatching { app.subtitleLoader.load(video, siblings, listOfNotNull(app.prefs.targetLanguage, app.prefs.peekLanguage)) } }
             .getOrElse {
                 subtitleStatus = "Couldn't read subtitles: ${it.message}"
+                subtitlesRead = true
                 return@LaunchedEffect
             }
         useTracks(text)
+        subtitlesRead = true
 
         // picture subtitles come in a moment later: their timing now, their text as they play
         val languages = listOfNotNull(app.prefs.targetLanguage, app.prefs.peekLanguage)
@@ -485,6 +492,21 @@ fun PlayerScreen(
         }
     }
 
+
+    // covered until the picture, the subtitles and the line's lookup are all in, then played
+    val pictureUp by session.pictureUp.collectAsState()
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(session) {
+        withTimeoutOrNull(LOADING_LIMIT_MS) {
+            snapshotFlow {
+                val cue = primary?.cues?.getOrNull(lineIndex)?.takeIf { it.text.isNotEmpty() }
+                val looked = cue == null || lookup?.let { it.lineIndex == lineIndex && it.result != null } == true
+                pictureUp && subtitlesRead && looked
+            }.first { it }
+        }
+        loading = false
+        session.start(play = app.prefs.gestureGuideSeen)
+    }
 
     // read only during layout/drawing so dragging the divider never recomposes the screen. Held
     // sideways, dragged past the edge the panel goes off screen, for just watching. Held upright
@@ -571,6 +593,7 @@ fun PlayerScreen(
             val videoArea = @Composable { modifier: Modifier ->
                 VideoArea(
                     session = session,
+                    loading = loading,
                     startPosition = app.prefs.position(session.videoUri),
                     audioLanguages = SubtitleFiles.mpvLanguages(app.prefs.targetLanguage),
                     nextEpisodeName = nextEpisodeName,
@@ -756,9 +779,13 @@ fun PlayerScreen(
                 })
             }
         }
+        LoadingCover(loading, Modifier.fillMaxSize().zIndex(11f))
       }
     }
 }
+
+/** The longest a video stays covered: past this, whatever hasn't come in comes in on view. */
+private const val LOADING_LIMIT_MS = 4000L
 
 /**
  * Full-bleed video. Tap toggles play/pause; dragging sideways scrubs.
@@ -773,10 +800,12 @@ fun PlayerScreen(
  * is there must cover it), and the picture is kept to the part that shows: a surface that changes
  * size lags the rest of the screen, so the video would jump as the panel moves.
  * Without [roundRight], only the left corners are rounded: what's beside it rounds the others.
+ * While [loading] (covered) the controls stay down, though the video waits paused.
  */
 @Composable
 private fun VideoArea(
     session: PlayerSession,
+    loading: Boolean,
     startPosition: Double,
     audioLanguages: String,
     nextEpisodeName: String?,
@@ -931,7 +960,8 @@ private fun VideoArea(
             factory = { ctx ->
                 MpvView(ctx).also { view ->
                     view.keepScreenOn = true
-                    view.initialize(startPosition, session.fill.value, audioLanguages)
+                    // paused for the first load, until the screen starts it; rotating plays on as before
+                    view.initialize(startPosition, session.fill.value, audioLanguages, paused = !session.started)
                     session.attach(view)
                     view.playFile(session.videoUri)
                     mpvView = view
@@ -1117,7 +1147,7 @@ private fun VideoArea(
         }
 
         // paused: close, time and options
-        AnimatedVisibility(paused && scrubTarget == null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(!loading && paused && scrubTarget == null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize()) {
                 Text(
                     "${formatTime(position)} / ${formatTime(duration)}",
@@ -1137,7 +1167,7 @@ private fun VideoArea(
         // tapped or dragged (via an invisible touch strip, reaching up past the system's swipes);
         // it fattens while held.
         AnimatedVisibility(
-            visible = paused || scrubTarget != null,
+            visible = !loading && (paused || scrubTarget != null),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomStart),
