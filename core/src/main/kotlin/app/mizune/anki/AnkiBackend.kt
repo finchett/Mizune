@@ -17,8 +17,8 @@ interface AnkiBackend {
     /** Copies [file] into the collection's media and returns the name it was stored under. */
     fun storeMedia(file: File): String
 
-    /** Adds a note and returns its id. */
-    fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>): Long
+    /** Adds a note and returns its id; with [allowDuplicate], even if [cannotAdd] would call it a duplicate. */
+    fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>, allowDuplicate: Boolean): Long
 
     fun deleteNotes(ids: List<Long>)
 
@@ -53,8 +53,8 @@ interface CardMedia {
     fun image(word: MinedWord, base: File): File?
 }
 
-/** Where new cards go and how they're filled. */
-class CardTarget(val format: CardFormat, val deck: String, val tags: List<String>)
+/** Where new cards go and how they're filled; [allowDuplicates] adds them even if the deck has the card. */
+data class CardTarget(val format: CardFormat, val deck: String, val tags: List<String>, val allowDuplicates: Boolean = false)
 
 /** Adds mined words to Anki: the checks first, then the media, then the note. */
 class CardWriter(private val anki: AnkiBackend, private val mediaDir: File) {
@@ -71,6 +71,7 @@ class CardWriter(private val anki: AnkiBackend, private val mediaDir: File) {
         // before spending time on media: a closed Anki, a duplicate or a missing deck fail here
         anki.cannotAdd(target.deck, format.noteType, textFields)?.let { reason ->
             if (AnkiBackend.DUPLICATE in reason || "duplicate" in reason) {
+                if (target.allowDuplicates) return@let
                 // remember which note it is, so it can be taken out again
                 val first = anki.fieldNames(format.noteType).firstOrNull()
                 throw Duplicate(first?.let { anki.findNotes(target.deck, it, textFields[it].orEmpty()).firstOrNull() })
@@ -96,7 +97,7 @@ class CardWriter(private val anki: AnkiBackend, private val mediaDir: File) {
         val image = if (CardSource.Screenshot in sources) store("screenshot", media.image(word, File(mediaDir, base))) else null
 
         val fields = word.copy(audioFile = audio, imageFile = image).fields(format)
-        return Added(anki.addNote(target.deck, format.noteType, fields, target.tags), missing)
+        return Added(anki.addNote(target.deck, format.noteType, fields, target.tags, target.allowDuplicates), missing)
     }
 
     fun remove(noteId: Long) = anki.deleteNotes(listOf(noteId))

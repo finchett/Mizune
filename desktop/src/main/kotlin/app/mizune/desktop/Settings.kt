@@ -143,6 +143,9 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     /** Tags for new cards, separated by spaces. */
     var ankiTags by mutableStateOf(prefs.get("anki_tags", "mizune"))
         private set
+    /** Ask before adding a card the deck has already; off, it just goes in again. */
+    var ankiWarnDuplicates by mutableStateOf(prefs.getBoolean("anki_warn_duplicates", true))
+        private set
     /** Seconds of audio kept before and after the line. */
     var ankiAudioPadding by mutableStateOf(prefs.getDouble("anki_audio_padding", 0.3))
         private set
@@ -163,7 +166,7 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun cardTarget(): CardTarget {
         val format = ankiFormat ?: throw AnkiException("Choose a note type under Settings › Anki")
         val deck = ankiDeck ?: throw AnkiException("Choose a deck under Settings › Anki")
-        return CardTarget(format, deck, ankiTags.split(' ', '\u3000').filter { it.isNotBlank() })
+        return CardTarget(format, deck, ankiTags.split(' ', '\u3000').filter { it.isNotBlank() }, allowDuplicates = !ankiWarnDuplicates)
     }
 
     fun cardFormat(noteType: String): CardFormat? =
@@ -180,6 +183,7 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun updateAnkiDeck(value: String) { ankiDeck = value; prefs.put("anki_deck", value) }
     fun updateAnkiNoteType(value: String) { ankiNoteType = value; prefs.put("anki_note_type", value) }
     fun updateAnkiTags(value: String) { ankiTags = value; prefs.put("anki_tags", value) }
+    fun updateAnkiWarnDuplicates(value: Boolean) { ankiWarnDuplicates = value; prefs.putBoolean("anki_warn_duplicates", value) }
     fun updateAnkiAudioPadding(value: Double) { ankiAudioPadding = value; prefs.putDouble("anki_audio_padding", value) }
     fun updateAnkiImageAnimated(value: Boolean) { ankiImageAnimated = value; prefs.putBoolean("anki_image_animated", value) }
     fun updateAnkiImageHeight(value: Int) { ankiImageHeight = value; prefs.putInt("anki_image_height", value) }
