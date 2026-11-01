@@ -49,6 +49,7 @@ interface MpvLib : Library {
         const val EVENT_SHUTDOWN = 1
         const val EVENT_FILE_LOADED = 8
         const val EVENT_END_FILE = 7
+        const val EVENT_PLAYBACK_RESTART = 21
         const val EVENT_PROPERTY_CHANGE = 22
 
         const val RENDER_PARAM_INVALID = 0

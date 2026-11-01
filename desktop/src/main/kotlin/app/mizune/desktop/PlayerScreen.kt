@@ -39,6 +39,9 @@ import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
@@ -120,6 +123,7 @@ import app.mizune.ui.PanelIcon
 import app.mizune.ui.QuietArea
 import app.mizune.ui.Scrubber
 import app.mizune.ui.LineSkipIcon
+import app.mizune.ui.LoadingCover
 import app.mizune.ui.LineStopIcon
 import app.mizune.ui.ReplayIcon
 import app.mizune.subs.translationFor
@@ -177,6 +181,8 @@ fun PlayerScreen(
     LaunchedEffect(session) { next = withContext(Dispatchers.IO) { runCatching { nextVideo(session.video) }.getOrNull() } }
 
     var subtitleStatus by remember { mutableStateOf<String?>("Reading subtitles…") }
+    // the text tracks, read or not; picture tracks come in later
+    var subtitlesRead by remember { mutableStateOf(false) }
     // shown in the panel header when a video's picture (PGS) subtitles couldn't be opened
     var readingNote by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(session) {
@@ -184,10 +190,12 @@ fun PlayerScreen(
         val text = tracks.getOrElse {
             app.logError("subtitles ${session.video}", it)
             subtitleStatus = "Couldn't read subtitles: ${it.message}"
+            subtitlesRead = true
             return@LaunchedEffect
         }
         session.setTracks(text)
         subtitleStatus = if (text.isEmpty()) "No text subtitles found for this video." else null
+        subtitlesRead = true
 
         // picture subtitles come in a moment later: their timing now, their text as they play
         val pictures = withContext(Dispatchers.IO) { runCatching { app.openPictureTracks(session.video, text) } }
@@ -202,6 +210,7 @@ fun PlayerScreen(
     }
 
     val primary by session.primary.collectAsState()
+    val pictureUp by session.player.pictureUp.collectAsState()
     val setupStatus by app.setupStatus.collectAsState()
     var hasDictionaries by remember { mutableStateOf(true) }
     LaunchedEffect(setupStatus) {
@@ -252,6 +261,20 @@ fun PlayerScreen(
         }
         // never leave the panel waiting: lines like ♪～ have nothing to look up
         if (mine == generation) lookup = found ?: ActiveLookup(lineIndex, text, 0, LookupResult(text, 0, 0, emptyList()))
+    }
+
+    // covered until the picture, the subtitles and the line's lookup are all in, then played
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(session) {
+        withTimeoutOrNull(LOADING_LIMIT_MS) {
+            snapshotFlow {
+                val cue = primary?.cues?.getOrNull(lineIndex)?.takeIf { it.text.isNotEmpty() }
+                val looked = cue == null || lookup?.let { it.lineIndex == lineIndex && it.result != null } == true
+                pictureUp && subtitlesRead && looked
+            }.first { it }
+        }
+        loading = false
+        session.start(play = settings.playerTutorialSeen)
     }
 
     /** The looked-up [entry] in its line, with the line's times in the video's clock. */
@@ -358,6 +381,7 @@ fun PlayerScreen(
                 app,
                 session,
                 keys,
+                loading = loading,
                 next = next,
                 onPlayNext = { next?.let(onOpenVideo) },
                 onBack = onBack,
@@ -441,7 +465,6 @@ fun PlayerScreen(
     }
     // the first video: how to work the player, over it, paused until it's done
     if (!settings.playerTutorialSeen) {
-        LaunchedEffect(Unit) { session.pause() }
         PlayerTutorial(
             keys,
             ankiEnabled = settings.ankiEnabled,
@@ -452,8 +475,12 @@ fun PlayerScreen(
             keyMap = settings.keyMap,
         )
     }
+    LoadingCover(loading)
     }
 }
+
+/** The longest a video stays covered: past this, whatever hasn't come in comes in on view. */
+private const val LOADING_LIMIT_MS = 4000L
 
 /** How long the controls stay after the mouse stops moving over the video. */
 private const val CONTROLS_TIMEOUT_MS = 2000L
@@ -470,6 +497,8 @@ private val BAR_HEIGHT = 40.dp
  * a band along the top, down the sides, and under the line, widening into the bottom corners.
  * They stay while it's there or on them, and go once it's back in the quiet area.
  *
+ * While [loading] (covered) the controls stay down, though the video waits paused.
+ *
  * [overlay] is drawn over it all, told whether the controls are up; while [dismiss] is set, a
  * click on the video calls it instead of playing or pausing. A drag on the video moves the window,
  * except where the line, a lookup or the controls take it.
@@ -479,6 +508,7 @@ private fun VideoArea(
     app: DesktopApp,
     session: PlayerSession,
     keys: PlayerKeys,
+    loading: Boolean,
     next: File?,
     onPlayNext: () -> Unit,
     onBack: () -> Unit,
@@ -517,7 +547,9 @@ private fun VideoArea(
         atEdge = false
     }
     var size by remember { mutableStateOf(IntSize.Zero) }
-    val visible = if (full) {
+    val visible = if (loading) {
+        false
+    } else if (full) {
         atEdge || overControls || menuOpen || scrubbing
     } else {
         (paused && !stoppedAtLine) || moving || overControls || menuOpen || scrubbing

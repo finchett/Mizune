@@ -1,6 +1,7 @@
 package app.mizune.ui
 
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -24,6 +25,18 @@ object Motion {
     fun intoPlayer() = ContentTransform(
         targetContentEnter = fadeIn(fade) + scaleIn(fade, initialScale = 0.97f),
         initialContentExit = fadeOut(fade),
+        sizeTransform = null,
+    )
+
+    /**
+     * Opening a video where its picture is a surface of its own (Android's), which doesn't fade
+     * with what's drawn over it: a player fading in would show it through its cover. So the player
+     * is there at once, under what it was opened from, which fades and settles away over its cover.
+     */
+    fun intoPlayerUnder() = ContentTransform(
+        targetContentEnter = EnterTransition.None,
+        initialContentExit = fadeOut(fade) + scaleOut(fade, targetScale = 1.03f),
+        targetContentZIndex = -1f,
         sizeTransform = null,
     )
 

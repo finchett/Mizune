@@ -21,6 +21,10 @@ class MpvView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
         fun onDuration(seconds: Double) {}
         fun onPause(paused: Boolean) {}
         fun onFileLoaded() {}
+        /** The file is ready to play from where it starts (or was sought to), its picture up. */
+        fun onPlaybackRestart() {}
+        /** The file ended, played through or because it couldn't be played. */
+        fun onEndFile() {}
         fun onEndReached() {}
     }
 
@@ -56,12 +60,19 @@ class MpvView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
         }
 
         override fun event(eventId: Int) {
-            if (eventId == MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED) post { listener?.onFileLoaded() }
+            when (eventId) {
+                MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> post { listener?.onFileLoaded() }
+                MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> listener?.onPlaybackRestart()
+                MPVLib.MpvEvent.MPV_EVENT_END_FILE -> listener?.onEndFile()
+            }
         }
     }
 
-    /** [audioLanguages] is mpv's `alang`: the audio to prefer, as a comma-separated list of tags. */
-    fun initialize(startPosition: Double, fill: Boolean, audioLanguages: String) {
+    /**
+     * [audioLanguages] is mpv's `alang`: the audio to prefer, as a comma-separated list of tags.
+     * With [paused] the video loads paused at [startPosition], its picture up, for the player to start.
+     */
+    fun initialize(startPosition: Double, fill: Boolean, audioLanguages: String, paused: Boolean) {
         // libmpv is a per-process singleton shared with the thumbnail generator
         ThumbnailGenerator.requestAbort()
         MpvOwner.acquire(OWNER)
@@ -90,6 +101,7 @@ class MpvView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
         MPVLib.setOptionString("keep-open", "yes")
         if (startPosition > 1) MPVLib.setOptionString("start", startPosition.toString())
         MPVLib.setOptionString("panscan", if (fill) "1.0" else "0.0")
+        if (paused) MPVLib.setOptionString("pause", "yes")
 
         MPVLib.init()
 

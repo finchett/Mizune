@@ -86,6 +86,20 @@ class PlayerSession(
     private val _fill = MutableStateFlow(prefs.videoFill)
     val fill: StateFlow<Boolean> = _fill.asStateFlow()
 
+    private val _pictureUp = MutableStateFlow(false)
+    /**
+     * Whether the video's picture is up, ready to play; also true when it couldn't be played, as
+     * nothing more is coming.
+     */
+    val pictureUp: StateFlow<Boolean> = _pictureUp.asStateFlow()
+
+    /**
+     * Whether [start] has been called. Until then the video waits paused where it's to start, and
+     * that position isn't saved over the one already saved.
+     */
+    @Volatile var started = false
+        private set
+
     private val _landscapeLock = MutableStateFlow(prefs.landscapeLock)
     val landscapeLock: StateFlow<Boolean> = _landscapeLock.asStateFlow()
 
@@ -186,6 +200,12 @@ class PlayerSession(
         prefs.landscapeLock = locked
     }
 
+    /** Called once the player can be seen: plays the video, unless [play] is false (the gesture guide holds it). */
+    fun start(play: Boolean) {
+        started = true
+        if (play) play()
+    }
+
     fun togglePause() {
         val v = view ?: return
         v.paused = !v.paused
@@ -243,6 +263,7 @@ class PlayerSession(
     }
 
     fun savePosition() {
+        if (!started) return
         // a quick look leaves the video as it was
         if (RecentVideos.skimmed(sitting.seconds, _duration.value)) return
         prefs.savePosition(videoUri, _position.value, _duration.value)
@@ -290,6 +311,15 @@ class PlayerSession(
         val saved = prefs.trackChoice(videoUri, "audio")?.toIntOrNull()
         if (saved != null && tracks.any { it.id == saved }) MPVLib.setPropertyString("aid", saved.toString())
         _audioTrack.value = runCatching { MPVLib.getPropertyString("aid")?.toIntOrNull() }.getOrNull()
+    }
+
+    override fun onPlaybackRestart() {
+        _pictureUp.value = true
+    }
+
+    // before the picture is up, the end of the file is it failing to play
+    override fun onEndFile() {
+        _pictureUp.value = true
     }
 
     override fun onTimePos(seconds: Double) {

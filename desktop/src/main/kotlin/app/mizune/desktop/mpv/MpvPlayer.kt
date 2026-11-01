@@ -6,6 +6,7 @@ import com.sun.jna.Pointer
 import app.mizune.desktop.mpv.MpvLib.Companion.EVENT_END_FILE
 import app.mizune.desktop.mpv.MpvLib.Companion.EVENT_FILE_LOADED
 import app.mizune.desktop.mpv.MpvLib.Companion.EVENT_NONE
+import app.mizune.desktop.mpv.MpvLib.Companion.EVENT_PLAYBACK_RESTART
 import app.mizune.desktop.mpv.MpvLib.Companion.EVENT_PROPERTY_CHANGE
 import app.mizune.desktop.mpv.MpvLib.Companion.EVENT_SHUTDOWN
 import app.mizune.desktop.mpv.MpvLib.Companion.FORMAT_DOUBLE
@@ -70,6 +71,17 @@ class MpvPlayer {
     private val _ended = MutableStateFlow(false)
     /** Whether playback has reached the end of the file (and, with keep-open, holds the last frame). */
     val ended: StateFlow<Boolean> = _ended.asStateFlow()
+
+    private val _pictureUp = MutableStateFlow(false)
+    /**
+     * Whether the loaded file's picture is in [frame]: false from [load] until the first frame
+     * drawn once mpv has it ready to play, so until then [frame] may still hold the last video's.
+     * Also true when the file couldn't be played, as nothing more is coming.
+     */
+    val pictureUp: StateFlow<Boolean> = _pictureUp.asStateFlow()
+    // the frame count at the last load, and whether the next frame drawn puts the picture up
+    @Volatile private var serialAtLoad = 0L
+    @Volatile private var awaitingPicture = false
 
     private val _videoHeight = MutableStateFlow(0)
     /** The video's height in pixels as decoded, or 0 until it's known. */
@@ -187,6 +199,9 @@ class MpvPlayer {
         _ended.value = false
         _audioTracks.value = emptyList()
         _audioTrack.value = null
+        _pictureUp.value = false
+        awaitingPicture = false
+        serialAtLoad = serial
         command("loadfile", path)
     }
     fun togglePause() = command("cycle", "pause")
@@ -242,7 +257,7 @@ class MpvPlayer {
 
     private var buffers = arrayOfNulls<Bitmap>(2)
     private var back = 0
-    private var serial = 0L
+    @Volatile private var serial = 0L
     private val size = Memory(8)
     private val stride = Memory(8)
     private val format = cString("rgb0")
@@ -333,6 +348,10 @@ class MpvPlayer {
         }
         bitmap.notifyPixelsChanged()
         _frame.value = Frame(bitmap, ++serial)
+        if (awaitingPicture) {
+            awaitingPicture = false
+            _pictureUp.value = true
+        }
         back = 1 - back
     }
 
@@ -389,7 +408,18 @@ class MpvPlayer {
                     _audioTrack.value = propertyString("aid")?.toIntOrNull()
                     wake.release()
                 }
-                EVENT_END_FILE -> wake.release()
+                // the new file's frames may already be drawn, or the next one will be. Checked again
+                // after asking, in case one was drawn in between: paused, no other would come.
+                EVENT_PLAYBACK_RESTART -> if (!_pictureUp.value) {
+                    awaitingPicture = true
+                    if (serial > serialAtLoad) _pictureUp.value = true
+                    wake.release()
+                }
+                EVENT_END_FILE -> {
+                    // mpv_event_end_file: { int reason; ... }; a stopped file ends too, which isn't a failure
+                    if (event.getPointer(16)?.getInt(0) == END_FILE_REASON_ERROR) _pictureUp.value = true
+                    wake.release()
+                }
             }
         }
     }
@@ -408,6 +438,9 @@ class MpvPlayer {
         }
     }
 }
+
+/** mpv_end_file_reason: the file couldn't be opened or played. */
+private const val END_FILE_REASON_ERROR = 4
 
 /** Blank GL frames in a row before the player gives up on GL; one alone could be a fluke of timing. */
 private const val BLANK_FRAMES = 3

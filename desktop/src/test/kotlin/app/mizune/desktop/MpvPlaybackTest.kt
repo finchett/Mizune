@@ -51,6 +51,33 @@ class MpvPlaybackTest {
         }
     }
 
+    /** A video opens paused, waiting under the player's cover, which needs to hear that its picture is up. */
+    @Test(timeout = 60_000)
+    fun putsThePictureUpWhilePaused() {
+        val loaded = runCatching { MpvLib.INSTANCE }
+        if (System.getenv("MIZUNE_TEST_MPV") == null) assumeTrue("no libmpv here", loaded.isSuccess)
+        loaded.getOrThrow()
+        val video = Files.createTempFile("testsrc", ".mkv").toFile().apply { deleteOnExit() }
+        javaClass.getResourceAsStream("/testsrc.mkv")!!.use { input -> video.outputStream().use { input.copyTo(it) } }
+        val player = MpvPlayer()
+        try {
+            player.property("mute", "yes")
+            player.setTargetSize(320, 180)
+            repeat(2) {
+                // the second time, over the first file's picture, which mustn't count
+                player.setPaused(true)
+                player.load(video.path)
+                assertTrue("the picture is up before it loaded", !player.pictureUp.value)
+                val deadline = System.currentTimeMillis() + 20_000
+                while (!player.pictureUp.value && System.currentTimeMillis() < deadline) Thread.sleep(20)
+                assertTrue("the picture came up", player.pictureUp.value)
+                assertTrue("it stayed paused", player.paused.value)
+            }
+        } finally {
+            player.destroy()
+        }
+    }
+
     /** Every thread's stack, mpv's native calls showing as the JNA calls into them. */
     private fun printThreads() {
         System.err.println("still running after two minutes:")
