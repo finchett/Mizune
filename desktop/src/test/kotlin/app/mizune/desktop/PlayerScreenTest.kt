@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -33,6 +34,7 @@ import java.util.prefs.Preferences
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import javax.imageio.ImageIO
+import kotlin.math.roundToInt
 
 /**
  * Drives the real player screen offscreen: real libmpv, sidecar subtitles and a tiny dictionary.
@@ -105,7 +107,8 @@ class PlayerScreenTest {
         Preferences.userRoot().node(node).removeNode()
         val app = DesktopApp(File(dir, "data").apply { mkdirs() }, File(dir, "cache"), Settings(node).apply { updatePlayerTutorialSeen(true) })
         val player = MpvPlayer()
-        player.property("mute", "yes")
+        // no sound out, rather than muted, which the player's volume control would undo
+        player.property("ao", "null")
         val session = PlayerSession(app.settings, player, video)
         try {
             Fixture(app, session).block()
@@ -273,6 +276,45 @@ class PlayerScreenTest {
                 onNodeWithContentDescription("Shaders").performClick()
                 onNodeWithText("Off").performClick()
                 waitUntil(timeoutMillis = 5_000) { shaders().isEmpty() }
+            }
+        }
+    }
+
+    /** The speaker mutes and unmutes; the slider sets the volume, unmuting, and the scroll wheel nudges it. */
+    @Test
+    fun volumeControl() {
+        assumeTrue("set MIZUNE_TEST_VIDEO", videoSource?.isFile == true)
+        fixture(ja = srt(1.0..2.0 to "一つ目の行。"), en = srt(1.0..2.0 to "The first line.")) {
+            val keys = PlayerKeys()
+            fun volume() = session.player.propertyString("volume")?.toDoubleOrNull()?.roundToInt()
+            fun mute() = session.player.propertyString("mute")
+            runDesktopComposeUiTest(width = 1440, height = 860) {
+                setContent {
+                    DesktopTheme(AppTheme.Jade) {
+                        PlayerScreen(app, session, keys, onBack = {}, onOpenVideo = {})
+                    }
+                }
+                waitUntil(timeoutMillis = 15_000) { session.player.videoHeight.value > 0 }
+                // paused, the controls stay up
+                session.pause()
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithContentDescription("Volume").fetchSemanticsNodes().isNotEmpty() }
+                waitUntil(timeoutMillis = 5_000) { volume() == 100 && mute() == "no" }
+
+                onNodeWithContentDescription("Mute").performClick()
+                assertTrue(app.settings.muted)
+                waitUntil(timeoutMillis = 5_000) { mute() == "yes" }
+                shot("7-volume-muted")
+
+                // a click a quarter of the way along sets a quarter, and unmutes
+                onNodeWithContentDescription("Volume").performMouseInput { click(Offset(width * 0.25f, height / 2f)) }
+                assertEquals(25, app.settings.volume)
+                assertFalse(app.settings.muted)
+                waitUntil(timeoutMillis = 5_000) { volume() == 25 && mute() == "no" }
+
+                onNodeWithContentDescription("Volume").performMouseInput { scroll(-1f) }
+                assertEquals(30, app.settings.volume)
+                waitUntil(timeoutMillis = 5_000) { volume() == 30 }
+                shot("7-volume")
             }
         }
     }

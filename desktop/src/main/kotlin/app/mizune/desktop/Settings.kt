@@ -120,6 +120,11 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     /** Crop the video to fill its area (mpv panscan) instead of letterboxing. */
     var videoFill by mutableStateOf(prefs.getBoolean("video_fill", false))
         private set
+    /** The player's volume, 0 to 100, kept from one video to the next. */
+    var volume by mutableStateOf(prefs.getInt("volume", 100))
+        private set
+    var muted by mutableStateOf(prefs.getBoolean("muted", false))
+        private set
     /** Anime4K on the video, and how heavy. */
     var anime4kPreset by mutableStateOf(
         Anime4K.Preset.entries.firstOrNull { it.name == prefs.get("anime4k_preset", null) } ?: Anime4K.Preset.OFF,
@@ -232,6 +237,8 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun title(name: String): String = if (tidyNames) Titles.clean(name) else if (isVideoName(name)) name.substringBeforeLast('.') else name
     fun updatePanelHidden(value: Boolean) { panelHidden = value; prefs.putBoolean("panel_hidden", value) }
     fun updateVideoFill(value: Boolean) { videoFill = value; prefs.putBoolean("video_fill", value) }
+    fun updateVolume(value: Int) { volume = value.coerceIn(0, 100); prefs.putInt("volume", volume) }
+    fun updateMuted(value: Boolean) { muted = value; prefs.putBoolean("muted", value) }
     fun updateAnime4kPreset(value: Anime4K.Preset) { anime4kPreset = value; prefs.put("anime4k_preset", value.name) }
     fun updateAnime4kMode(value: Anime4K.Mode?) {
         anime4kMode = value
