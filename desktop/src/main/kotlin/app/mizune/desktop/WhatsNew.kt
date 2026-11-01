@@ -1,6 +1,5 @@
 package app.mizune.desktop
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -33,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -132,7 +130,7 @@ private fun WhatsNewDialog(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // the icon carries its own margin, so 64 dp draws a 52 dp tile
-                Image(painterResource("icon.png"), contentDescription = null, modifier = Modifier.size(64.dp))
+                AppIcon(64.dp)
                 Column {
                     Text(
                         eyebrow.uppercase(),
