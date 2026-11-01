@@ -2,13 +2,9 @@ package app.mizune.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,8 +25,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -134,50 +128,6 @@ fun peekLanguageNote(code: String): String {
     val files = "Mizune doesn't translate or download subtitles, so $name ones need to be in the video or in a file beside it."
     if (ImageSubtitles.model(code) != null) return files
     return "$files Picture subtitles (PGS) can only be read in English and Japanese for now."
-}
-
-/** A theme as a tile of its own colours; [theme] null is the one that follows the phone. */
-@Composable
-fun ThemeSwatch(label: String, theme: AppTheme?, selected: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Column(
-        Modifier.width(96.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(
-            Modifier.fillMaxWidth()
-                .border(2.dp, if (selected) scheme.primary else Color.Transparent, RoundedCornerShape(12.dp))
-                .padding(2.dp)
-                .aspectRatio(3f / 2f)
-                .clip(RoundedCornerShape(8.dp))
-                .background(
-                    if (theme != null) Brush.linearGradient(0f to theme.scheme.background, 1f to theme.scheme.background)
-                    // the system tile is split: the light theme on one side, the dark on the other
-                    else Brush.horizontalGradient(
-                        0f to SystemLight.scheme.background, 0.5f to SystemLight.scheme.background,
-                        0.5f to SystemDark.scheme.background, 1f to SystemDark.scheme.background,
-                    ),
-                )
-                .border(1.dp, scheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            Text(
-                "あ Aa",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                color = theme?.scheme?.onBackground ?: scheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-        }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-            color = if (selected) scheme.primary else scheme.onSurfaceVariant,
-            maxLines = 1,
-        )
-    }
 }
 
 /**

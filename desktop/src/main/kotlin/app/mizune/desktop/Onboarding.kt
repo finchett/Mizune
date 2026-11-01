@@ -71,6 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.mizune.anki.AnkiConnect
+import app.mizune.anki.CardFormats
 import app.mizune.dictionary.DictionaryCatalog
 import app.mizune.dictionary.DictionaryInfo
 import app.mizune.library.isVideoName
@@ -355,10 +356,31 @@ private fun ColumnScope.DictionariesStep(app: DesktopApp, picked: Set<String>, o
 private fun ColumnScope.AnkiStep(app: DesktopApp) {
     val settings = app.settings
     var attempt by remember { mutableStateOf(0) }
-    var running by remember { mutableStateOf<Boolean?>(null) }
+    var collection by remember { mutableStateOf<Result<AnkiCollection>?>(null) }
     LaunchedEffect(attempt) {
-        running = null
-        running = withContext(Dispatchers.IO) { runCatching { AnkiConnect(settings.ankiUrl).version() }.isSuccess }
+        collection = null
+        collection = withContext(Dispatchers.IO) {
+            runCatching {
+                val anki = AnkiConnect(settings.ankiUrl)
+                anki.version()
+                AnkiCollection(anki.noteTypes(), anki.decks())
+            }
+        }
+    }
+    val connected = collection?.getOrNull()
+    val running = collection?.isSuccess
+    // with cards on, what Settings › Anki would set up: the known note type, and a source for each of its fields
+    LaunchedEffect(connected, settings.ankiEnabled, settings.ankiNoteType) {
+        if (connected == null || !settings.ankiEnabled) return@LaunchedEffect
+        val noteType = settings.ankiNoteType
+        if (noteType == null) {
+            CardFormats.pick(connected.noteTypes)?.let(settings::updateAnkiNoteType)
+            return@LaunchedEffect
+        }
+        val names = withContext(Dispatchers.IO) {
+            runCatching { AnkiConnect(settings.ankiUrl).fieldNames(noteType) }.getOrNull()
+        } ?: return@LaunchedEffect
+        settings.fillCardFormat(noteType, names)
     }
     val scheme = MaterialTheme.colorScheme
     Eyebrow("Step 5 of 5 · Optional")
@@ -369,40 +391,55 @@ private fun ColumnScope.AnkiStep(app: DesktopApp) {
             "still from the scene.",
     )
     Spacer(Modifier.height(24.dp))
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(scheme.surfaceVariant).padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        val dot = when (running) {
-            true -> scheme.primary
-            false -> scheme.onSurfaceVariant.copy(alpha = 0.5f)
-            null -> scheme.onSurfaceVariant.copy(alpha = 0.25f)
+    // a note type is asked for only when the collection has none known field by field
+    val askNoteType = connected != null && CardFormats.pick(connected.noteTypes) == null
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(scheme.surfaceVariant)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            val dot = when (running) {
+                true -> scheme.primary
+                false -> scheme.onSurfaceVariant.copy(alpha = 0.5f)
+                null -> scheme.onSurfaceVariant.copy(alpha = 0.25f)
+            }
+            Box(Modifier.size(10.dp).clip(CircleShape).background(dot))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    when (running) {
+                        true -> "Anki is open and ready"
+                        false -> "Anki isn't answering"
+                        null -> "Looking for Anki…"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    when {
+                        running != true -> "Cards need Anki open with the AnkiConnect add-on. Or set it up later in Settings › Anki."
+                        !settings.ankiEnabled -> "Turn cards on to start making them."
+                        askNoteType && settings.ankiNoteType == null -> "Cards are on. Pick a note type and the deck they go in."
+                        settings.ankiDeck == null -> "Cards are on. Pick the deck they go in."
+                        else -> "Cards are on. Fields and tags are under Settings › Anki."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+            if (running == true) {
+                Toggle(settings.ankiEnabled, settings::updateAnkiEnabled)
+            } else if (running == false) {
+                TextAction("Check again", onClick = { attempt++ }, color = scheme.primary)
+            }
         }
-        Box(Modifier.size(10.dp).clip(CircleShape).background(dot))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                when (running) {
-                    true -> "Anki is open and ready"
-                    false -> "Anki isn't answering"
-                    null -> "Looking for Anki…"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                when (running) {
-                    true -> if (settings.ankiEnabled) "Cards are on. Fields and deck are under Settings › Anki." else "Turn cards on to start making them."
-                    else -> "Cards need Anki open with the AnkiConnect add-on. Or set it up later in Settings › Anki."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
-            )
-        }
-        if (running == true) {
-            Toggle(settings.ankiEnabled, settings::updateAnkiEnabled)
-        } else if (running == false) {
-            TextAction("Check again", onClick = { attempt++ }, color = scheme.primary)
+        if (connected != null && settings.ankiEnabled) {
+            if (askNoteType) {
+                Divider()
+                AnkiChoice("Note type", settings.ankiNoteType, connected.noteTypes, settings::updateAnkiNoteType)
+            }
+            Divider()
+            AnkiChoice("Deck", settings.ankiDeck, connected.decks, settings::updateAnkiDeck)
         }
     }
     Spacer(Modifier.height(14.dp))
@@ -676,6 +713,15 @@ private fun LanguageTile(title: String, detail: String?, selected: Boolean, modi
 @Composable
 private fun Divider() {
     Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp).height(1.dp).background(MaterialTheme.colorScheme.hairline))
+}
+
+/** One of the Anki step's choices: [title], and a menu of [options] showing [chosen]. */
+@Composable
+private fun AnkiChoice(title: String, chosen: String?, options: List<String>, onChoose: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Select(chosen ?: "Choose…", options, onSelect = { onChoose(options[it]) }, width = 220.dp, muted = chosen == null)
+    }
 }
 
 /** A round tick box. */

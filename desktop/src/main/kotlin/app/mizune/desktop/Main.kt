@@ -55,8 +55,7 @@ import java.io.File
 import kotlin.system.exitProcess
 
 private sealed interface Screen {
-    /** [focus]: a video in [folder] to scroll to and point out. */
-    data class Library(val folder: File?, val focus: File? = null) : Screen
+    data class Library(val folder: File?) : Screen
     data class Player(val video: File, val from: File?) : Screen
     data class Settings(val from: Screen) : Screen
     /** The first launch's welcome and setup. */
@@ -411,7 +410,9 @@ private fun Browse(
                 },
             )
         } else {
+            // the library's header and its grid are one surface, the way a Mac window's toolbar is
             Chrome(
+                hairline = false,
                 header = {
                     LibraryHeader(
                         app, library.folder,
@@ -430,9 +431,8 @@ private fun Browse(
                         LibraryBody(
                             app, s.folder,
                             onOpenFolder = { navigate(Screen.Library(it)) },
-                            onOpenVideo = { onOpenVideo(it, s.folder ?: it.parentFile) },
-                            focus = s.focus,
-                            onShowVideo = { navigate(Screen.Library(it.parentFile, focus = it)) },
+                            // back from the player comes out in the video's folder, Continue watching's too
+                            onOpenVideo = { onOpenVideo(it, it.parentFile) },
                         )
                     }
                 },

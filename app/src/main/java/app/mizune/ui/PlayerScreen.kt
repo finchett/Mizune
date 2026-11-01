@@ -50,9 +50,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.layout.mandatorySystemGestures
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -63,10 +62,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ColorScheme
@@ -118,6 +115,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -126,7 +124,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.text.TextAutoSize
@@ -171,6 +168,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.sign
+import app.mizune.subs.detail
+import app.mizune.subs.shortName
 
 
 /** Seconds covered by dragging across the full width of the video at normal speed. */
@@ -292,13 +291,14 @@ private fun DrawScope.videoEndCorners(radius: Float, inset: Float, color: Color)
 
 /**
  * A grip where the panel can be pulled back from, with it off screen (see [edgeDrag]), shown
- * while [visible]; nothing is drawn on the edge otherwise.
+ * while [visible]; nothing is drawn on the edge otherwise. Light or dark to stand out on [behind].
  */
 @Composable
-private fun PanelGrip(visible: Boolean, modifier: Modifier) {
+private fun PanelGrip(visible: Boolean, behind: Color, modifier: Modifier) {
+    val color = if (behind.luminance() < 0.5f) Color.White.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.45f)
     Box(modifier, contentAlignment = Alignment.Center) {
         AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
-            Box(Modifier.width(4.dp).height(28.dp).background(Color(0x998A8E95), RoundedCornerShape(3.dp)))
+            Box(Modifier.width(4.dp).height(28.dp).background(color, RoundedCornerShape(3.dp)))
         }
     }
 }
@@ -653,7 +653,8 @@ fun PlayerScreen(
                 val insetPx = with(LocalDensity.current) { HIDDEN_EDGE_INSET.toPx() }
                 val videoEndGap by animateDpAsState(if (panelHidden) gap else gap / 2, tween(220), label = "video end gap")
                 val screenColor = if (rounded) MaterialTheme.colorScheme.background else Color.Black
-                // put away, the panel shows for a moment where it can be pulled back from
+                // put away, the panel shows for a moment where it can be pulled back from, and for as
+                // long as the video is paused
                 var showGrip by remember { mutableStateOf(false) }
                 var opening by remember { mutableStateOf(true) }
                 LaunchedEffect(panelHidden) {
@@ -725,7 +726,8 @@ fun PlayerScreen(
                     // mid-height on the edge, taking no layout space: the grip, and with the panel off
                     // screen, the part of the zone kept from the back swipe
                     PanelGrip(
-                        visible = showGrip,
+                        visible = panelHidden && (showGrip || paused),
+                        behind = screenColor,
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .offset { IntOffset((edgeX() - zonePx / 2).roundToInt(), 0) }
@@ -794,8 +796,8 @@ private const val LOADING_LIMIT_MS = 4000L
  * video does; while [dismiss] is set, that tap calls it instead of playing or pausing. With
  * [lineGestures] (the panel off screen) it takes the panel's: swipes move a line at a time, a
  * double tap in the middle stops at the end of every line (the edges still jump), and a hold is
- * reported to [onHold]. Scrubbing is then on the seek line, while paused. The seek line's touch
- * strip reaches [bottomClear] further up than it would, out of the system's swipes.
+ * reported to [onHold]. Scrubbing is then on the seek line, while paused. The seek line, its touch
+ * strip and the time sit [bottomClear] up from the bottom, out of the system's swipes.
  * With [surfaceWidth], the video surface keeps that width, running on past the right edge (whatever
  * is there must cover it), and the picture is kept to the part that shows: a surface that changes
  * size lags the rest of the screen, so the video would jump as the panel moves.
@@ -1153,7 +1155,7 @@ private fun VideoArea(
                     "${formatTime(position)} / ${formatTime(duration)}",
                     color = Color.White,
                     style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = VIDEO_INSET, bottom = 16.dp)
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = SEEK_SIDE, bottom = 16.dp + bottomClear)
                         .background(OVER_VIDEO, RoundedCornerShape(8.dp))
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 )
@@ -1163,9 +1165,10 @@ private fun VideoArea(
         }
         if (showOptions) PlayerOptions(session, onDismiss = { showOptions = false })
 
-        // seek bar: a thin line on the bottom edge, hidden while playing. While paused it can be
-        // tapped or dragged (via an invisible touch strip, reaching up past the system's swipes);
-        // it fattens while held.
+        // seek bar: a thin line along the bottom, hidden while playing. While paused it can be
+        // tapped or dragged (via an invisible touch strip above it); it fattens while held. Held
+        // sideways, line and strip sit above the system's swipes at the screen's edge, since a drag
+        // that starts in there and drifts upwards is taken for going home ("swipe up again").
         AnimatedVisibility(
             visible = !loading && (paused || scrubTarget != null),
             enter = fadeIn(),
@@ -1176,11 +1179,16 @@ private fun VideoArea(
             val fraction = if (duration > 0) (shown / duration).toFloat().coerceIn(0f, 1f) else 0f
             var held by remember { mutableStateOf(false) }
             val barHeight by animateDpAsState(if (held) 10.dp else 4.dp, label = "seekBarHeight")
-            fun timeAt(x: Float) = (x / widthPx).coerceIn(0f, 1f) * session.duration.value
+            // the line is held in from the sides so a finger can reach either end; a touch past an end is that end
+            val sidePx = with(LocalDensity.current) { SEEK_SIDE.toPx() }
+            fun timeAt(x: Float) = ((x - sidePx) / (widthPx - 2 * sidePx)).coerceIn(0f, 1f) * session.duration.value
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(32.dp + bottomClear)
+                    .padding(bottom = bottomClear)
+                    .height(32.dp)
+                    // held sideways, the strip reaches the edges the system's back swipe comes from
+                    .systemGestureExclusion()
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -1217,7 +1225,7 @@ private fun VideoArea(
                     },
                 contentAlignment = Alignment.BottomStart,
             ) {
-                Box(Modifier.fillMaxWidth().height(barHeight).background(Color(0x33FFFFFF))) {
+                Box(Modifier.padding(horizontal = SEEK_SIDE).fillMaxWidth().height(barHeight).background(Color(0x33FFFFFF))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(MaterialTheme.colorScheme.primary))
                 }
             }
@@ -1227,6 +1235,9 @@ private fun VideoArea(
 
 /** The shade behind everything drawn over the video: buttons, the time, notices. */
 private val OVER_VIDEO = Color(0x80000000)
+
+/** How far the seek line, and the time over its start, are held in from each side of the video. */
+private val SEEK_SIDE = 24.dp
 
 /** How far the buttons and the time sit in from the video's edges. */
 private val VIDEO_INSET = 12.dp
@@ -1657,175 +1668,37 @@ private fun PlayerOptions(session: PlayerSession, onDismiss: () -> Unit) {
     val autoPause by session.autoPause.collectAsState()
     val landscapeLock by session.landscapeLock.collectAsState()
 
-    // one row per thing, labels down the left, so it fits a phone held either way round
+    // on its side the phone is short, so the card goes wide enough for two columns
+    val configuration = LocalConfiguration.current
+    val sideways = configuration.screenWidthDp > configuration.screenHeightDp
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(0.92f),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.widthIn(max = if (sideways) 760.dp else 480.dp).fillMaxWidth(if (sideways) 0.9f else 0.92f),
         ) {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Options", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Done") }
-                }
-                Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (audioTracks.isNotEmpty()) {
-                        TrackSelect(
-                            title = "Audio",
-                            current = audioTracks.firstOrNull { it.id == audioTrack }?.label ?: "None",
-                            options = audioTracks.map { track -> track.label to { session.selectAudio(track) } },
-                        )
-                    }
-                    if (tracks.isEmpty()) {
-                        Text("No text subtitle tracks in this video.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        TrackSelect(
-                            title = "Study",
-                            current = primary?.let(::trackLabel) ?: "None",
-                            options = tracks.map { track -> trackLabel(track) to { session.selectPrimary(track) } },
-                        )
-                        TrackSelect(
-                            title = "Peek",
-                            current = secondary?.let(::trackLabel) ?: "None",
-                            options = listOf("None" to { session.selectSecondary(null) }) +
-                                tracks.filter { it !== primary }.map { track -> trackLabel(track) to { session.selectSecondary(track) } },
-                        )
-                    }
-                    // the shift between the buttons that change it; tapped, it goes back to none
-                    OptionRow("Timing") {
-                        Row(
-                            Modifier.weight(1f).height(40.dp).clip(OPTION_SHAPE).background(MaterialTheme.colorScheme.optionField),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                        listOf(-1.0 to "−1", -0.1 to "−.1").forEach { (delta, label) -> OffsetButton(label) { session.setOffset(offset + delta) } }
-                        Text(
-                            when {
-                                offset == 0.0 -> "in sync"
-                                else -> "%+.1fs".format(offset)
-                            },
-                            color = if (offset == 0.0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f).fillMaxHeight()
-                                .clickable(enabled = offset != 0.0) { session.setOffset(0.0) }
-                                .wrapContentHeight(),
-                        )
-                        listOf(0.1 to "+.1", 1.0 to "+1").forEach { (delta, label) -> OffsetButton(label) { session.setOffset(offset + delta) } }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OptionChip("Fill the area", fill, Modifier.weight(1f)) { session.setFill(!fill) }
-                        OptionChip("Stop at each line", autoPause, Modifier.weight(1f)) { session.setAutoPause(!autoPause) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OptionChip("Lock landscape", landscapeLock, Modifier.weight(1f)) { session.setLandscapeLock(!landscapeLock) }
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
+            PlayerOptionsCard(
+                fill = fill,
+                onFill = session::setFill,
+                audioTracks = audioTracks,
+                audioTrack = audioTrack,
+                onAudio = session::selectAudio,
+                tracks = tracks,
+                primary = primary,
+                secondary = secondary,
+                onPrimary = session::selectPrimary,
+                onSecondary = session::selectSecondary,
+                offset = offset,
+                onOffset = session::setOffset,
+                autoPause = autoPause,
+                onAutoPause = session::setAutoPause,
+                landscapeLock = landscapeLock,
+                onLandscapeLock = session::setLandscapeLock,
+                onDone = onDismiss,
+            )
         }
     }
-}
-
-/** The corners of every control in the options. */
-private val OPTION_SHAPE = RoundedCornerShape(10.dp)
-
-/** What the options' controls sit on: a faint lift off the dialog. */
-private val ColorScheme.optionField: Color
-    get() = onSurface.copy(alpha = 0.07f)
-
-/** A row of the options: its [title] down the left, then [content]. */
-@Composable
-private fun OptionRow(title: String, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(64.dp),
-        )
-        content()
-    }
-}
-
-/** One of the segments of the timing control that shift the subtitles. */
-@Composable
-private fun OffsetButton(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        maxLines = 1,
-        style = MaterialTheme.typography.labelLarge,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.width(44.dp).fillMaxHeight().clickable(onClick = onClick).wrapContentHeight(),
-    )
-}
-
-/** An on/off option as a chip, ticked while on. */
-@Composable
-private fun OptionChip(label: String, on: Boolean, modifier: Modifier, onToggle: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        modifier.height(40.dp).clip(OPTION_SHAPE)
-            .background(if (on) scheme.primary.copy(alpha = 0.18f) else scheme.optionField)
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(if (on) "✓" else "", color = scheme.primary, modifier = Modifier.width(12.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/** A track choice: [title] down the left, then the [current] one on a button that opens a menu of [options]. */
-@Composable
-private fun TrackSelect(title: String, current: String, options: List<Pair<String, () -> Unit>>) {
-    var open by remember { mutableStateOf(false) }
-    OptionRow(title) {
-        Box(Modifier.weight(1f)) {
-            Row(
-                Modifier.fillMaxWidth().height(40.dp).clip(OPTION_SHAPE)
-                    .background(MaterialTheme.colorScheme.optionField)
-                    .clickable { open = true }
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    current,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text("▾", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            DropdownMenu(
-                expanded = open,
-                onDismissRequest = { open = false },
-                shape = OPTION_SHAPE,
-                containerColor = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            ) {
-                options.forEach { (label, select) ->
-                    DropdownMenuItem(
-                        text = { Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        leadingIcon = { Text(if (label == current) "✓" else "", color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(12.dp)) },
-                        onClick = { select(); open = false },
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun trackLabel(track: SubtitleTrack): String {
-    val language = track.language?.let { " · $it" }.orEmpty()
-    return "${track.name}$language · ${track.cues.size} lines"
 }
 
 /** With Anki on, a button on each of [lookup]'s entries that makes a card of it. */

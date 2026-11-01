@@ -82,7 +82,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.mizune.anki.AnkiConnect
-import app.mizune.anki.CardFormat
 import app.mizune.anki.CardFormats
 import app.mizune.anki.CardSource
 import app.mizune.dictionary.DictionaryInfo
@@ -96,6 +95,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import app.mizune.ui.SectionLabel
 
 /** The panes of the settings screen, in the order they appear in its sidebar. */
 enum class SettingsPane(val label: String) {
@@ -301,6 +301,42 @@ private fun GeneralPane(app: DesktopApp) {
                 "Hides release tags like [Group] and 1080p, and shows episodes as Episode 1",
                 settings.tidyNames, settings::updateTidyNames,
             )
+        }
+    }
+    Section("Watching") {
+        Card {
+            ToggleRow(
+                "Continue watching",
+                "Shows the videos you stopped partway at the top of the library",
+                settings.continueWatching, settings::updateContinueWatching,
+            )
+            RowDivider()
+            ToggleRow(
+                "Show progress",
+                "Shows what you've watched in the library",
+                settings.showProgress, settings::updateShowProgress,
+            )
+            // what it shows, set in from it, while it's on
+            if (settings.showProgress) {
+                NestedDivider()
+                NestedToggleRow(
+                    "Checkmarks",
+                    "On watched videos, and on folders once every video in them is watched",
+                    settings.progressChecks, settings::updateProgressChecks,
+                )
+                NestedDivider()
+                NestedToggleRow(
+                    "Video progress",
+                    "A line along the foot of a video's picture, as far as you've got",
+                    settings.videoProgress, settings::updateVideoProgress,
+                )
+                NestedDivider()
+                NestedToggleRow(
+                    "Folder progress",
+                    "A slice for each video along the foot of a folder's picture",
+                    settings.folderProgress, settings::updateFolderProgress,
+                )
+            }
         }
     }
     Section("Languages") {
@@ -601,7 +637,7 @@ private fun AppearancePane(app: DesktopApp) {
 }
 
 /** What AnkiConnect reported: the collection's note types and decks. */
-private class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
+internal class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
 
 private fun presetDetail(preset: Anime4K.Preset): String = when (preset) {
     Anime4K.Preset.OFF -> "Sharpens and upscales anime on the GPU"
@@ -643,11 +679,7 @@ private fun AnkiPane(app: DesktopApp) {
         val names = withContext(Dispatchers.IO) {
             runCatching { AnkiConnect(settings.ankiUrl).fieldNames(noteType) }.getOrNull()
         } ?: return@LaunchedEffect
-        val saved = settings.cardFormat(noteType)
-        if (saved == null || saved.fields.keys != names.toSet()) {
-            val suggested = CardFormats.forNoteType(noteType, names).fields
-            settings.saveCardFormat(CardFormat(noteType, names.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }))
-        }
+        settings.fillCardFormat(noteType, names)
         fields = names
     }
 
@@ -716,6 +748,12 @@ private fun AnkiPane(app: DesktopApp) {
             SettingRow("Tags", "Separated by spaces") {
                 TextInput(settings.ankiTags, settings::updateAnkiTags, width = 220.dp)
             }
+            RowDivider()
+            ToggleRow(
+                "Warn about duplicates",
+                "Ask before adding a card the deck already has. Off, it's added again",
+                settings.ankiWarnDuplicates, settings::updateAnkiWarnDuplicates,
+            )
         }
         NoteTypeSource(
             if (CardFormats.pick(connected.noteTypes) != null) "Cards are set up for Japanese sentences, the mpvacious note type."
@@ -1076,6 +1114,18 @@ private fun Card(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun RowDivider() = HorizontalDivider(color = MaterialTheme.colorScheme.rowLine)
 
+/** How far a setting's own options are set in from it. */
+private val NESTED_INSET = 22.dp
+
+/** A [ToggleRow] that's one of the setting above's own options, set in from it. */
+@Composable
+private fun NestedToggleRow(title: String, detail: String?, checked: Boolean, onChange: (Boolean) -> Unit) =
+    Box(Modifier.padding(start = NESTED_INSET)) { ToggleRow(title, detail, checked, onChange) }
+
+/** A divider above a nested row, starting where its text does. */
+@Composable
+private fun NestedDivider() = HorizontalDivider(Modifier.padding(start = NESTED_INSET + 14.dp), color = MaterialTheme.colorScheme.rowLine)
+
 /**
  * A row of one card: what the setting is, an explanation under it, and the control that changes
  * it. [detailKey] is drawn as a keycap where it appears in [detail].
@@ -1193,7 +1243,7 @@ private fun LanguageSelect(selected: String?, allowNone: Boolean, onSelect: (Str
 
 /** A control that looks like a select, with the menu of [options] under it. */
 @Composable
-private fun Select(text: String, options: List<String>, onSelect: (Int) -> Unit, width: Dp = 150.dp, muted: Boolean = false) {
+internal fun Select(text: String, options: List<String>, onSelect: (Int) -> Unit, width: Dp = 150.dp, muted: Boolean = false) {
     var open by remember { mutableStateOf(false) }
     Box {
         val scheme = MaterialTheme.colorScheme

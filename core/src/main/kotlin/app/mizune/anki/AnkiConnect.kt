@@ -34,9 +34,11 @@ class AnkiConnect(private val url: String = DEFAULT_URL) : AnkiBackend {
             JSONObject().put("filename", filename).put("data", Base64.getEncoder().encodeToString(data)),
         ) as? String ?: filename
 
-    /** Adds a note and returns its id. Anki refuses duplicates of the first field within the deck. */
-    override fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>): Long =
-        (call("addNote", JSONObject().put("note", note(deck, noteType, fields).put("tags", JSONArray(tags)))) as Number).toLong()
+    /** Adds a note and returns its id. Unless [allowDuplicate], Anki refuses duplicates of the first field within the deck. */
+    override fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>, allowDuplicate: Boolean): Long {
+        val note = note(deck, noteType, fields, allowDuplicate).put("tags", JSONArray(tags))
+        return (call("addNote", JSONObject().put("note", note)) as Number).toLong()
+    }
 
     /**
      * Why Anki would refuse this note (a duplicate, a missing deck), or null if it would take it,
@@ -65,11 +67,11 @@ class AnkiConnect(private val url: String = DEFAULT_URL) : AnkiBackend {
         call("deleteNotes", JSONObject().put("notes", JSONArray(ids)))
     }
 
-    private fun note(deck: String, model: String, fields: Map<String, String>) = JSONObject()
+    private fun note(deck: String, model: String, fields: Map<String, String>, allowDuplicate: Boolean = false) = JSONObject()
         .put("deckName", deck)
         .put("modelName", model)
         .put("fields", JSONObject(fields))
-        .put("options", JSONObject().put("allowDuplicate", false))
+        .put("options", JSONObject().put("allowDuplicate", allowDuplicate))
 
     private fun call(action: String, params: JSONObject? = null): Any? {
         val body = JSONObject().put("action", action).put("version", 6)

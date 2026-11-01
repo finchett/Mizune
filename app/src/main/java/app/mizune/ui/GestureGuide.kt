@@ -189,7 +189,7 @@ private fun ColumnScope.StepText(step: GuideStep) {
 
 /** A gesture, in a chip like a key's, and what it does. */
 @Composable
-private fun Hint(gesture: String, text: String) {
+internal fun Hint(gesture: String, text: String) {
     val scheme = MaterialTheme.colorScheme
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.width(116.dp)) {

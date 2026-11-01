@@ -33,6 +33,7 @@ import app.mizune.ui.ReleaseNotesText
 import app.mizune.update.Updates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import app.mizune.ui.SectionLabel
 
 /**
  * Settings › About, opened from the app's name at the foot of the sidebar: which version this is

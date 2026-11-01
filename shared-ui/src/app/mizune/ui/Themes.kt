@@ -27,7 +27,7 @@ enum class AppTheme(val label: String, val scheme: ColorScheme) {
     Celadon(
         "Celadon",
         lightColorScheme(
-            primary = Color(0xFF245D4E),
+            primary = Color(0xFF507D71),
             onPrimary = Color(0xFFF5F3EE),
             secondary = Color(0xFF8A4F35),
             tertiary = Color(0xFF2F7A62),

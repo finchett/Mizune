@@ -57,7 +57,10 @@ object QuietArea {
     }
 }
 
-/** A thin seek bar that thickens under the pointer, or a finger. [touchHeight] is the height it can be grabbed in. */
+/**
+ * A thin seek bar that thickens under the pointer, or a finger. [touchHeight] is the height it can
+ * be grabbed in; [color] fills the part played, the accent the controls around it use.
+ */
 @Composable
 fun Scrubber(
     position: Double,
@@ -66,12 +69,12 @@ fun Scrubber(
     onScrubEnd: () -> Unit,
     modifier: Modifier = Modifier,
     touchHeight: Dp = 14.dp,
+    color: Color = MaterialTheme.colorScheme.primary,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     var held by remember { mutableStateOf(false) }
     val thickness by animateDpAsState(if (hovered || held) 6.dp else 3.dp, label = "scrubber")
-    val played = MaterialTheme.colorScheme.primary
     fun at(x: Float, width: Int) = (x / width).coerceIn(0f, 1f) * duration
     Canvas(
         modifier.fillMaxWidth().height(touchHeight)
@@ -105,6 +108,6 @@ fun Scrubber(
         val radius = CornerRadius(h / 2)
         val fraction = if (duration > 0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f
         drawRoundRect(Color.White.copy(alpha = 0.28f), Offset(0f, y), Size(size.width, h), radius)
-        drawRoundRect(played, Offset(0f, y), Size(size.width * fraction, h), radius)
+        drawRoundRect(color, Offset(0f, y), Size(size.width * fraction, h), radius)
     }
 }

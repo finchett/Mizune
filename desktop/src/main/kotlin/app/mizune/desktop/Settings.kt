@@ -1,6 +1,7 @@
 package app.mizune.desktop
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.mizune.anki.AnkiConnect
@@ -8,6 +9,7 @@ import app.mizune.anki.AnkiException
 import app.mizune.anki.CardFormat
 import app.mizune.anki.CardFormats
 import app.mizune.anki.CardTarget
+import app.mizune.library.RecentVideos
 import app.mizune.library.Titles
 import app.mizune.library.isVideoName
 import app.mizune.ui.AppTheme
@@ -91,6 +93,18 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     /** Show and folder names without release tags, and episodes as "Episode 1" (see [Titles]). */
     var tidyNames by mutableStateOf(prefs.getBoolean("tidy_names", true))
         private set
+    /** Continue watching at the top of the library. */
+    var continueWatching by mutableStateOf(prefs.getBoolean("continue_watching", true))
+        private set
+    /** How far through each video and folder the library shows: how many are watched, and, each on its own, ticks, videos' lines and folders' slices. */
+    var showProgress by mutableStateOf(prefs.getBoolean("show_progress", true))
+        private set
+    var progressChecks by mutableStateOf(prefs.getBoolean("progress_checks", true))
+        private set
+    var videoProgress by mutableStateOf(prefs.getBoolean("video_progress", true))
+        private set
+    var folderProgress by mutableStateOf(prefs.getBoolean("folder_progress", false))
+        private set
     /** New versions download and go in by themselves; off, they wait to be asked for ([Updater]). */
     var autoUpdate by mutableStateOf(prefs.getBoolean("auto_update", true))
         private set
@@ -143,6 +157,9 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     /** Tags for new cards, separated by spaces. */
     var ankiTags by mutableStateOf(prefs.get("anki_tags", "mizune"))
         private set
+    /** Ask before adding a card the deck has already; off, it just goes in again. */
+    var ankiWarnDuplicates by mutableStateOf(prefs.getBoolean("anki_warn_duplicates", true))
+        private set
     /** Seconds of audio kept before and after the line. */
     var ankiAudioPadding by mutableStateOf(prefs.getDouble("anki_audio_padding", 0.3))
         private set
@@ -163,7 +180,7 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun cardTarget(): CardTarget {
         val format = ankiFormat ?: throw AnkiException("Choose a note type under Settings › Anki")
         val deck = ankiDeck ?: throw AnkiException("Choose a deck under Settings › Anki")
-        return CardTarget(format, deck, ankiTags.split(' ', '\u3000').filter { it.isNotBlank() })
+        return CardTarget(format, deck, ankiTags.split(' ', '\u3000').filter { it.isNotBlank() }, allowDuplicates = !ankiWarnDuplicates)
     }
 
     fun cardFormat(noteType: String): CardFormat? =
@@ -175,11 +192,20 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         prefs.put("anki_formats", all.toString())
     }
 
+    /** Gives [noteType] a source for each of [fieldNames]: as saved where it still fits, otherwise suggested. */
+    fun fillCardFormat(noteType: String, fieldNames: List<String>) {
+        val saved = cardFormat(noteType)
+        if (saved != null && saved.fields.keys == fieldNames.toSet()) return
+        val suggested = CardFormats.forNoteType(noteType, fieldNames).fields
+        saveCardFormat(CardFormat(noteType, fieldNames.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }))
+    }
+
     fun updateAnkiEnabled(value: Boolean) { ankiEnabled = value; prefs.putBoolean("anki_enabled", value) }
     fun updateAnkiUrl(value: String) { ankiUrl = value; prefs.put("anki_url", value) }
     fun updateAnkiDeck(value: String) { ankiDeck = value; prefs.put("anki_deck", value) }
     fun updateAnkiNoteType(value: String) { ankiNoteType = value; prefs.put("anki_note_type", value) }
     fun updateAnkiTags(value: String) { ankiTags = value; prefs.put("anki_tags", value) }
+    fun updateAnkiWarnDuplicates(value: Boolean) { ankiWarnDuplicates = value; prefs.putBoolean("anki_warn_duplicates", value) }
     fun updateAnkiAudioPadding(value: Double) { ankiAudioPadding = value; prefs.putDouble("anki_audio_padding", value) }
     fun updateAnkiImageAnimated(value: Boolean) { ankiImageAnimated = value; prefs.putBoolean("anki_image_animated", value) }
     fun updateAnkiImageHeight(value: Int) { ankiImageHeight = value; prefs.putInt("anki_image_height", value) }
@@ -194,6 +220,11 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun updateCopyLines(value: Boolean) { copyLines = value; prefs.putBoolean("copy_lines", value) }
     fun updateEpisodeNumbers(value: Boolean) { episodeNumbers = value; prefs.putBoolean("episode_numbers", value) }
     fun updateTidyNames(value: Boolean) { tidyNames = value; prefs.putBoolean("tidy_names", value) }
+    fun updateContinueWatching(value: Boolean) { continueWatching = value; prefs.putBoolean("continue_watching", value) }
+    fun updateShowProgress(value: Boolean) { showProgress = value; prefs.putBoolean("show_progress", value) }
+    fun updateProgressChecks(value: Boolean) { progressChecks = value; prefs.putBoolean("progress_checks", value) }
+    fun updateVideoProgress(value: Boolean) { videoProgress = value; prefs.putBoolean("video_progress", value) }
+    fun updateFolderProgress(value: Boolean) { folderProgress = value; prefs.putBoolean("folder_progress", value) }
     fun updateAutoUpdate(value: Boolean) { autoUpdate = value; prefs.putBoolean("auto_update", value) }
     fun updateUpdatesInHeader(value: Boolean) { updatesInHeader = value; prefs.putBoolean("updates_in_header", value) }
 
@@ -257,20 +288,51 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun savePosition(path: String, seconds: Double, duration: Double) {
         val k = key(path)
         if (duration > 0) videos.putDouble("$k.dur", duration)
-        // finished episodes restart from the beginning
-        if (duration > 0 && seconds > duration - 30) videos.remove("$k.pos") else videos.putDouble("$k.pos", seconds)
+        // finished episodes restart from the beginning, and count as watched from then on
+        if (RecentVideos.finished(seconds, duration)) {
+            videos.remove("$k.pos")
+            videos.putBoolean("$k.watched", true)
+        } else {
+            videos.putDouble("$k.pos", seconds)
+        }
         markPlayed(path)
     }
 
-    /**
-     * The videos played last, newest first, for the library's resume bar. More than one is kept,
-     * since the last may have been finished or moved by the time it looks.
-     */
+    /** Whether [path] has been watched to the end (or marked so), for its folder's count. */
+    fun watched(path: String): Boolean = videos.getBoolean("${key(path)}.watched", false)
+
+    /** The videos played last, newest first, for Continue watching at the top of the library (RecentVideos). */
     var recent by mutableStateOf(prefs.get("recent", "").split('\n').filter { it.isNotEmpty() })
         private set
 
+    /** Counts progress changed from the library's menus, so its cards draw theirs again. */
+    var progressChanges by mutableIntStateOf(0)
+        private set
+
+    /** Forgets where [path] was left and that it was watched: it plays from the start and leaves Continue watching. */
+    fun clearProgress(path: String) {
+        videos.remove("${key(path)}.pos")
+        videos.remove("${key(path)}.watched")
+        forgetRecent(path)
+        progressChanges++
+    }
+
+    /** Counts [path] as watched, as if it had played to the end. */
+    fun markWatched(path: String) {
+        videos.remove("${key(path)}.pos")
+        videos.putBoolean("${key(path)}.watched", true)
+        forgetRecent(path)
+        progressChanges++
+    }
+
+    /** Takes [path] out of Continue watching. Where it was left is kept, so it still picks up from there. */
+    fun forgetRecent(path: String) {
+        recent = recent - path
+        prefs.put("recent", recent.joinToString("\n"))
+    }
+
     private fun markPlayed(path: String) {
-        var kept = (listOf(path) + recent.filter { it != path }).take(12)
+        var kept = RecentVideos.played(path, recent)
         while (kept.isNotEmpty() && kept.joinToString("\n").length > Preferences.MAX_VALUE_LENGTH) kept = kept.dropLast(1)
         recent = kept
         prefs.put("recent", kept.joinToString("\n"))

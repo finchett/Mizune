@@ -15,8 +15,9 @@ import androidx.compose.runtime.snapshots.Snapshot
 /**
  * Moves the macOS window buttons (traffic lights) and fades them, which AWT has no API for.
  * Talks to AppKit through the Objective-C runtime, on the main thread via libdispatch, the way
- * Electron's trafficLightPosition does. AppKit lays the title bar out again on resize, so
- * callers re-apply after size changes.
+ * Electron's trafficLightPosition does. AppKit lays the title bar out again on resize, putting
+ * the lights back where it wants them, so they're moved again on the main thread as soon as it
+ * does, before the window is drawn.
  */
 object MacTrafficLights {
     /** The window's corner radius in points, read from AppKit once the window exists. */
@@ -63,6 +64,29 @@ object MacTrafficLights {
     // callbacks must stay reachable until the main thread has run them
     private val pending = java.util.Collections.synchronizedSet(HashSet<Work>())
 
+    // the last placement asked for, and the window it's kept up in; main thread only
+    private var lightCenter = -1.0
+    private var watched: Pointer? = null
+    private var placing = false
+
+    private fun interface Relayout : Callback {
+        fun invoke(self: Pointer?, cmd: Pointer?, notification: Pointer?)
+    }
+
+    // AppKit calls this the moment it has moved the title bar or a light, or resized the window
+    private val relayout = Relayout { _, _, _ ->
+        if (!placing && lightCenter >= 0) runCatching { watched?.let(::place) }
+    }
+
+    /** An Objective-C object whose relayout: is [relayout], to sign up for AppKit's notifications. */
+    private val observer: Pointer by lazy {
+        val observerClass = objc.getFunction("objc_allocateClassPair")
+            .invokePointer(arrayOf(cls("NSObject"), "MizuneTrafficLights", 0L))
+        objc.getFunction("class_addMethod").invokeInt(arrayOf(observerClass, sel("relayout:"), relayout, "v@:@"))
+        objc.getFunction("objc_registerClassPair").invokeVoid(arrayOf(observerClass))
+        send(send(observerClass, "alloc"), "init")!!
+    }
+
     /**
      * Centres the first light [center] points in from the top and left, and shows or fades them.
      * No-op off macOS.
@@ -75,37 +99,16 @@ object MacTrafficLights {
         onMain {
             val result = runCatching {
                 val window = appWindow() ?: return@onMain
-                val nsTitle = msgSend.invokePointer(arrayOf(cls("NSString"), sel("stringWithUTF8String:"), title))
-                sendVoid(window, "setTitle:", nsTitle)
+                sendVoid(window, "setTitle:", nsString(title))
                 val responds = sendLong(window, "respondsToSelector:", sel("_cornerRadius")) and 0xFF
                 if (responds != 0L) {
                     val radius = msgSend.invokeDouble(arrayOf(window, sel("_cornerRadius")))
                     if (radius > 0 && radius != cornerRadius) Snapshot.withMutableSnapshot { cornerRadius = radius }
                 }
 
-                // in full screen the lights live in the bar that slides down from the top, laid out
-                // by AppKit; moving them there only has it put them back, a flicker on the way in
-                if (sendLong(window, "styleMask") and NS_WINDOW_STYLE_MASK_FULL_SCREEN != 0L) return@onMain
-
-                val buttons = (0..2).map { send(window, "standardWindowButton:", it.toLong()) }
-                if (buttons.any { it == null }) return@onMain
-                // buttons live in the titlebar view, inside the titlebar container (y grows upwards)
-                val container = send(send(buttons[0], "superview"), "superview") ?: return@onMain
-                val contentHeight = frame(send(window, "contentView")).height
-                val bar = frame(container)
-                if (baseTitlebarHeight == 0.0) baseTitlebarHeight = bar.height
-                val buttonHeight = frame(buttons[0]).height
-                // the whole row the lights are centred in, and never so short that the buttons
-                // are clipped at their new height
-                val height = maxOf(baseTitlebarHeight, center * 2, center + buttonHeight / 2)
-                sendVoid(container, "setFrame:", rect(bar.x, contentHeight - height, bar.width, height))
-
-                buttons.forEachIndexed { i, button ->
-                    val f = frame(button)
-                    val x = center + i * LIGHT_SPACING - f.width / 2
-                    val y = height - center - f.height / 2
-                    sendVoid(button, "setFrameOrigin:", Point(x, y))
-                }
+                lightCenter = center
+                val container = place(window) ?: return@onMain
+                watch(window)
                 // the buttons' own alpha is ignored by the titlebar on recent macOS; fading the
                 // whole (transparent) titlebar container works
                 sendVoid(send(container, "animator"), "setAlphaValue:", if (visible) 1.0 else 0.0)
@@ -114,6 +117,60 @@ object MacTrafficLights {
             if (DEBUG) result.exceptionOrNull()?.printStackTrace()
         }
     }
+
+    /** Moves the lights to [lightCenter] in [window], unless it's full screen. Main thread only. */
+    private fun place(window: Pointer): Pointer? {
+        // in full screen the lights live in the bar that slides down from the top, laid out
+        // by AppKit; moving them there only has it put them back, a flicker on the way in
+        if (sendLong(window, "styleMask") and NS_WINDOW_STYLE_MASK_FULL_SCREEN != 0L) return null
+        val buttons = (0..2).map { send(window, "standardWindowButton:", it.toLong()) ?: return null }
+        // buttons live in the titlebar view, inside the titlebar container (y grows upwards)
+        val container = send(send(buttons[0], "superview"), "superview") ?: return null
+        val center = lightCenter
+        val contentHeight = frame(send(window, "contentView")).height
+        val bar = frame(container)
+        if (baseTitlebarHeight == 0.0) baseTitlebarHeight = bar.height
+        val buttonHeight = frame(buttons[0]).height
+        // the whole row the lights are centred in, and never so short that the buttons
+        // are clipped at their new height
+        val height = maxOf(baseTitlebarHeight, center * 2, center + buttonHeight / 2)
+        // moving them posts the notifications [relayout] listens for
+        placing = true
+        try {
+            sendVoid(container, "setFrame:", rect(bar.x, contentHeight - height, bar.width, height))
+            buttons.forEachIndexed { i, button ->
+                val f = frame(button)
+                val x = center + i * LIGHT_SPACING - f.width / 2
+                val y = height - center - f.height / 2
+                sendVoid(button, "setFrameOrigin:", Point(x, y))
+            }
+        } finally {
+            placing = false
+        }
+        return container
+    }
+
+    /**
+     * Has AppKit call [relayout] when [window] resizes or it moves the title bar or a light, so
+     * they never stay where it put them until the next frame. Signed up again each time, as
+     * AppKit can make new title bar views (full screen does).
+     */
+    private fun watch(window: Pointer) {
+        val buttons = (0..2).map { send(window, "standardWindowButton:", it.toLong()) ?: return }
+        val container = send(send(buttons[0], "superview"), "superview") ?: return
+        val center = send(cls("NSNotificationCenter"), "defaultCenter")
+        sendVoid(center, "removeObserver:", observer)
+        val resized = nsString("NSWindowDidResizeNotification")
+        val moved = nsString("NSViewFrameDidChangeNotification")
+        sendVoid(center, "addObserver:selector:name:object:", observer, sel("relayout:"), resized, window)
+        for (view in buttons + container) {
+            sendVoid(center, "addObserver:selector:name:object:", observer, sel("relayout:"), moved, view)
+        }
+        watched = window
+    }
+
+    private fun nsString(value: String): Pointer =
+        msgSend.invokePointer(arrayOf(cls("NSString"), sel("stringWithUTF8String:"), value))
 
     /** Debug only: prints where the first light is each second, to catch AppKit moving it back. */
     fun probe() {

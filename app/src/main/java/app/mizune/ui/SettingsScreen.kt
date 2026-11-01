@@ -11,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +36,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -131,49 +131,24 @@ fun SettingsScreen(app: App, onBack: () -> Unit) {
                     Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 }
 
-                SettingsSection("Dictionaries") {
-                    if (dictionaries.isEmpty()) {
-                        SettingRow("No dictionaries yet", "Import a Yomitan zip below.")
-                    }
-                    dictionaries.forEachIndexed { index, dict ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                        DictionaryRow(
-                            dict = dict,
-                            isFirst = index == 0,
-                            isLast = index == dictionaries.lastIndex,
-                            onMove = { direction ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) { app.dictionaryDatabase.move(dict.id, direction) }
-                                    refresh()
-                                }
-                            },
-                            onEnabled = { enabled ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) { app.dictionaryDatabase.setEnabled(dict.id, enabled) }
-                                    refresh()
-                                }
-                            },
-                            onRemove = { confirmDelete = dict },
+                SettingsSection("Appearance") {
+                    // the desktop's picker: each family light beside dark, then Auto, Light or Dark
+                    CompositionLocalProvider(LocalMenuRowHeight provides 40.dp) {
+                        ThemePicker(
+                            app.appearance.family,
+                            app.appearance.mode,
+                            app.appearance::updateFamily,
+                            app.appearance::updateMode,
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                            columns = 3,
                         )
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "Yomitan and Rikaitan dictionaries work here: Jitendex, JMdict, frequency lists, " +
-                                "pitch accent. The ones higher up appear first in results.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        val status = setupStatus ?: importing
-                        if (status != null) {
-                            Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
-                            LinearProgressIndicator(Modifier.fillMaxWidth())
-                        } else {
-                            Button(onClick = {
-                                pickZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
-                            }) { Text("Import dictionary (.zip)") }
-                        }
-                    }
+                    SettingSwitchRow(
+                        title = "Rounded corners",
+                        description = "Show the video and study panel as rounded cards.",
+                        initial = app.appearance.roundedCorners,
+                    ) { app.appearance.updateRoundedCorners(it) }
                 }
 
                 SettingsSection("Library") {
@@ -209,20 +184,40 @@ fun SettingsScreen(app: App, onBack: () -> Unit) {
                     ) { app.prefs.tidyNames = it }
                 }
 
-                SettingsSection("Languages") {
-                    LanguageRow(
-                        title = "Studying",
-                        selected = app.prefs.targetLanguage,
-                        allowNone = false,
-                    ) { it?.let { code -> app.prefs.targetLanguage = code } }
+                SettingsSection("Watching") {
+                    SettingSwitchRow(
+                        title = "Continue watching",
+                        description = "Shows the video you stopped partway at the top of the library.",
+                        initial = app.prefs.continueWatching,
+                    ) { app.prefs.continueWatching = it }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    LanguageRow(
-                        title = "Peek language",
-                        description = "Hold the line to show subtitles in this language.",
-                        note = { code -> code?.let(::peekLanguageNote) },
-                        selected = app.prefs.peekLanguage,
-                        allowNone = true,
-                    ) { app.prefs.peekLanguage = it }
+                    var showProgress by remember { mutableStateOf(app.prefs.showProgress) }
+                    SettingSwitchRow(
+                        title = "Show progress",
+                        description = "Shows what you've watched in the library.",
+                        initial = showProgress,
+                    ) { app.prefs.showProgress = it; showProgress = it }
+                    // what it shows, set in from it, while it's on
+                    if (showProgress) Column(Modifier.padding(start = 20.dp)) {
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        SettingSwitchRow(
+                            title = "Checkmarks",
+                            description = "On watched videos, and on folders once every video in them is watched.",
+                            initial = app.prefs.progressChecks,
+                        ) { app.prefs.progressChecks = it }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        SettingSwitchRow(
+                            title = "Video progress",
+                            description = "A line along the foot of a video's picture, as far as you've got.",
+                            initial = app.prefs.videoProgress,
+                        ) { app.prefs.videoProgress = it }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        SettingSwitchRow(
+                            title = "Folder progress",
+                            description = "A slice for each video along the foot of a folder's picture.",
+                            initial = app.prefs.folderProgress,
+                        ) { app.prefs.folderProgress = it }
+                    }
                 }
 
                 SettingsSection("Playback") {
@@ -271,38 +266,71 @@ fun SettingsScreen(app: App, onBack: () -> Unit) {
                             modifier = Modifier.padding(bottom = 12.dp),
                         )
                     }
-                }
-
-                SettingsSection("Appearance") {
-                    Column(
-                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text("Theme", style = MaterialTheme.typography.titleSmall)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            ThemeSwatch("System", null, app.appearance.theme == null) {
-                                app.appearance.updateTheme(null)
-                            }
-                            AppTheme.entries.forEach { theme ->
-                                ThemeSwatch(theme.label, theme, app.appearance.theme == theme) {
-                                    app.appearance.updateTheme(theme)
-                                }
-                            }
-                        }
-                    }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     SettingRow("Player tutorial", "The short tour of the gestures shown the first time you open a video.") {
                         OutlinedButton(onClick = { app.prefs.gestureGuideSeen = false }) { Text("Show again") }
                     }
+                }
+
+                SettingsSection("Languages") {
+                    LanguageRow(
+                        title = "Studying",
+                        selected = app.prefs.targetLanguage,
+                        allowNone = false,
+                    ) { it?.let { code -> app.prefs.targetLanguage = code } }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    SettingSwitchRow(
-                        title = "Rounded corners",
-                        description = "Show the video and study panel as rounded cards.",
-                        initial = app.appearance.roundedCorners,
-                    ) { app.appearance.updateRoundedCorners(it) }
+                    LanguageRow(
+                        title = "Peek language",
+                        description = "Hold the line to show subtitles in this language.",
+                        note = { code -> code?.let(::peekLanguageNote) },
+                        selected = app.prefs.peekLanguage,
+                        allowNone = true,
+                    ) { app.prefs.peekLanguage = it }
+                }
+
+                SettingsSection("Dictionaries") {
+                    if (dictionaries.isEmpty()) {
+                        SettingRow("No dictionaries yet", "Import a Yomitan zip below.")
+                    }
+                    dictionaries.forEachIndexed { index, dict ->
+                        if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        DictionaryRow(
+                            dict = dict,
+                            isFirst = index == 0,
+                            isLast = index == dictionaries.lastIndex,
+                            onMove = { direction ->
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { app.dictionaryDatabase.move(dict.id, direction) }
+                                    refresh()
+                                }
+                            },
+                            onEnabled = { enabled ->
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { app.dictionaryDatabase.setEnabled(dict.id, enabled) }
+                                    refresh()
+                                }
+                            },
+                            onRemove = { confirmDelete = dict },
+                        )
+                    }
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "Yomitan and Rikaitan dictionaries work here: Jitendex, JMdict, frequency lists, " +
+                                "pitch accent. The ones higher up appear first in results.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val status = setupStatus ?: importing
+                        if (status != null) {
+                            Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        } else {
+                            Button(onClick = {
+                                pickZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                            }) { Text("Import dictionary (.zip)") }
+                        }
+                    }
                 }
 
                 SettingsSection("Anki") {
@@ -548,7 +576,7 @@ private fun ShoulderTriggerSettings(app: App) {
 }
 
 /** The name of the library folder behind a tree URI, or null when there isn't one. */
-private fun libraryFolderName(context: android.content.Context, treeUri: String?): String? {
+internal fun libraryFolderName(context: android.content.Context, treeUri: String?): String? {
     val uri = treeUri ?: return null
     return runCatching { DocumentFile.fromTreeUri(context, Uri.parse(uri))?.takeIf { it.canRead() }?.name }
         .getOrNull() ?: Uri.parse(uri).lastPathSegment

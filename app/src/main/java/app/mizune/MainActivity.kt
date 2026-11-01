@@ -16,8 +16,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.isSystemInDarkTheme
-import app.mizune.ui.SystemDark
-import app.mizune.ui.SystemLight
 import app.mizune.ui.Motion
 import app.mizune.ui.PhoneTheme
 import androidx.compose.runtime.LaunchedEffect
@@ -25,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.mizune.ui.LibraryScreen
+import app.mizune.ui.Onboarding
 import app.mizune.ui.PlayerScreen
 import app.mizune.ui.SettingsScreen
 import app.mizune.update.AppUpdateState
@@ -32,6 +31,7 @@ import kotlinx.coroutines.android.awaitFrame
 import java.io.File
 
 sealed interface Screen {
+    data object Welcome : Screen
     data object Library : Screen
     data object Settings : Screen
     data class Player(val video: LibraryFile, val siblings: List<LibraryFile>) : Screen
@@ -48,12 +48,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         hideSystemBars()
         val app = application as App
+        // the welcome again, for trying it: adb shell am start -n app.mizune/.MainActivity --ez welcome true
+        if (!app.prefs.onboarded || intent?.getBooleanExtra("welcome", false) == true) screen = Screen.Welcome
         if (savedInstanceState == null) handleViewIntent(intent)
         setContent {
-            val theme = app.appearance.theme
-                ?: if (isSystemInDarkTheme()) SystemDark else SystemLight
+            val theme = app.appearance.theme(isSystemInDarkTheme())
             PhoneTheme(theme) {
-                BackHandler(enabled = screen != Screen.Library) { screen = Screen.Library }
+                BackHandler(enabled = screen != Screen.Library && screen != Screen.Welcome) { screen = Screen.Library }
                 LaunchedEffect(pendingScreen) {
                     val next = pendingScreen ?: return@LaunchedEffect
                     awaitFrame()
@@ -75,6 +76,10 @@ class MainActivity : ComponentActivity() {
                     label = "screen",
                 ) { animatedScreen ->
                 when (val s = animatedScreen) {
+                    Screen.Welcome -> Onboarding(app, onFinish = {
+                        app.prefs.onboarded = true
+                        screen = Screen.Library
+                    })
                     Screen.Library -> LibraryScreen(
                         app = app,
                         onOpenVideo = { video, siblings -> screen = Screen.Player(video, siblings) },

@@ -22,8 +22,11 @@ object ThumbnailGenerator {
         abort = true
     }
 
-    /** [start] is an mpv position: "20%" for an unwatched video, or seconds for where you left off. */
-    fun generate(context: Context, videoUri: String, store: ThumbnailStore, start: String = "20%"): Boolean {
+    /**
+     * [start] is an mpv position: "20%" for a video's own frame, or seconds for where it was left.
+     * The frame is kept under [key], the video's URI unless it's one of those.
+     */
+    fun generate(context: Context, videoUri: String, store: ThumbnailStore, start: String = "20%", key: String = videoUri): Boolean {
         val outputDir = File(context.cacheDir, "thumbgen").apply {
             deleteRecursively()
             mkdirs()
@@ -50,7 +53,7 @@ object ThumbnailGenerator {
             val written = waitForFrame(outputDir)
             if (written != null) {
                 val bitmap = BitmapFactory.decodeFile(written.path) ?: return false
-                store.save(videoUri, bitmap)
+                store.save(key, bitmap)
                 return true
             }
             return false
