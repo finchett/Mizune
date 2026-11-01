@@ -54,18 +54,6 @@ fun PlayIcon(color: Color, diameter: Dp = 16.dp) {
     }
 }
 
-/** Pause: two bars. */
-@Composable
-fun PauseIcon(color: Color, diameter: Dp = 16.dp) {
-    Canvas(Modifier.size(diameter)) {
-        val w = size.width
-        val h = size.height
-        val radius = CornerRadius(w * 0.05f)
-        drawRoundRect(color, Offset(w * 0.24f, h * 0.18f), Size(w * 0.18f, h * 0.64f), radius)
-        drawRoundRect(color, Offset(w * 0.58f, h * 0.18f), Size(w * 0.18f, h * 0.64f), radius)
-    }
-}
-
 /** Replay the line: an arrow most of the way round anticlockwise, its head at the top. */
 @Composable
 fun ReplayIcon(color: Color, diameter: Dp = 16.dp) {
