@@ -1263,7 +1263,8 @@ private fun Modifier.videoPill() =
  * selection dragged across) opens its [lookup] above the line, in the room up to the buttons along
  * the top, and holding the line (or the video) shows it in the peek language while [peeking]. A tap
  * beside the words is a tap on the video. It shows while it's spoken, while paused, and while held
- * or looked up, clear of the time and the seek line's touch strip (which reaches [bottomClear] up).
+ * or looked up. Playing, it sits low, just above the system's swipes ([bottomClear]); paused, it
+ * rises clear of the time and the seek line's touch strip.
  */
 @Composable
 private fun BoxScope.LineOverVideo(
@@ -1293,9 +1294,13 @@ private fun BoxScope.LineOverVideo(
     val shown = cue != null && cue.text.isNotEmpty() && (lineActive || paused || peeking || lookup != null)
     // a hold on the line can't be let go of once the line is gone
     LaunchedEffect(shown) { if (!shown) onHold(false) }
+    val bottom by animateDpAsState(
+        if (paused) 44.dp + bottomClear else maxOf(16.dp, bottomClear),
+        label = "line bottom",
+    )
 
     Column(
-        Modifier.matchParentSize().padding(start = 20.dp, top = 56.dp, end = 20.dp, bottom = 44.dp + bottomClear),
+        Modifier.matchParentSize().padding(start = 20.dp, top = 56.dp, end = 20.dp, bottom = bottom),
         verticalArrangement = Arrangement.Bottom,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
