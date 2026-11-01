@@ -78,11 +78,12 @@ fun AnkiSettings(app: App) {
     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
     val connected = collection?.getOrNull()
     if (connected == null) {
-        val problem = AnkiDroid.unavailable(context) ?: collection?.exceptionOrNull()?.message
+        val problem = AnkiDroid.unavailable(context)
         SettingRow(
             "AnkiDroid",
-            // a fresh AnkiDroid has no collection until it has been opened once
-            problem ?: if (collection == null) "Connecting…" else "Couldn't reach AnkiDroid. Open it once, then retry.",
+            // installed and allowed, AnkiDroid answers other apps only with its API on, and only once it has a collection
+            problem ?: if (collection == null) "Connecting…"
+            else "Couldn't reach AnkiDroid. In AnkiDroid, turn on Settings › Advanced › Enable AnkiDroid API, then retry. If it's new, open it once first.",
         ) {
             when {
                 !AnkiDroid.installed(context) -> Unit
