@@ -12,6 +12,19 @@ object RecentVideos {
         (listOf(video) + recent.filter { it != video }).take(KEPT)
 
     /**
+     * Whether a video stopped at [seconds] of [duration] counts as watched: few watch the credits, so it's
+     * whatever is left of the last tenth, at least 30 seconds and at most five minutes.
+     */
+    fun finished(seconds: Double, duration: Double): Boolean =
+        duration > 0 && duration - seconds < (duration / 10).coerceIn(30.0, 300.0)
+
+    /**
+     * Whether a sitting of [seconds] with a video [duration] long was only a look: opened, skimmed and left. Then
+     * where it stopped isn't kept, and it doesn't go under Continue watching. A minute, or a quarter of a short video.
+     */
+    fun skimmed(seconds: Double, duration: Double): Boolean = seconds < minOf(60.0, duration / 4)
+
+    /**
      * How a video called [name] is named under Continue watching, among the names of the videos in its folder,
      * [siblings]: "Episode 3" and the like with [tidy] names (see [Titles.episodes]), its file name otherwise.
      */
@@ -31,4 +44,11 @@ object RecentVideos {
             else -> "${minutes / 60} h ${minutes % 60} min left"
         }
     }
+}
+
+/** A video open in the player, from when it was opened: paused time counts, since study pauses a lot. */
+class Sitting {
+    private val start = System.nanoTime()
+
+    val seconds: Double get() = (System.nanoTime() - start) / 1e9
 }

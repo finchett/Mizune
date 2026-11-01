@@ -1,9 +1,14 @@
 package app.mizune.desktop
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.background
@@ -12,10 +17,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -34,32 +44,56 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.round
+import androidx.compose.ui.platform.LocalDensity
 import app.mizune.library.NaturalOrder
+import app.mizune.library.Progress
 import app.mizune.library.RecentVideos
 import app.mizune.library.Titles
 import app.mizune.library.isVideoName
 import app.mizune.ui.Cog
+import app.mizune.ui.CopyIcon
 import app.mizune.ui.FolderMark
+import app.mizune.ui.GoToFolderIcon
+import app.mizune.ui.MenuChoice
+import app.mizune.ui.ProgressLine
+import app.mizune.ui.ProgressSlices
+import app.mizune.ui.RemoveIcon
+import app.mizune.ui.ResetIcon
+import app.mizune.ui.RevealIcon
+import app.mizune.ui.StartIcon
+import app.mizune.ui.TickIcon
+import app.mizune.ui.WatchedMark
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import java.io.File
 import app.mizune.ui.SectionLabel
 
-private data class Folder(val dir: File, val videos: Int, val cover: File?)
+/**
+ * A folder in the listing: its [videos], seasons and all, how many are [watched], and how far through each one, in
+ * order, a group for its own videos and one for each season ([shares]).
+ */
+private data class Folder(val dir: File, val videos: Int, val cover: File?, val watched: Int, val shares: List<List<Float>>)
 private data class Listing(val folders: List<Folder>, val videos: List<File>)
 
 /** A video stopped partway, to pick up again: its show (null for one at the top), name, and how far in. */
@@ -76,21 +110,32 @@ fun nextVideo(video: File): File? {
     return if (index < 0) null else videos.getOrNull(index + 1)
 }
 
-private fun list(folder: File): Listing {
+private fun list(folder: File, settings: Settings): Listing {
     val folders = folder.listFiles().orEmpty().filter { it.isDirectory && !it.isHidden }
         .sortedWith(compareBy(NaturalOrder) { it.name })
-        // counts go one level deep only: enough for "12 videos" under each show without a slow full scan
-        .map { dir -> videosIn(dir).let { Folder(dir, it.size, it.firstOrNull() ?: coverIn(dir)) } }
+        .map { dir ->
+            // a show split into seasons counts them all, a group each
+            val own = videosIn(dir)
+            val groups = (listOf(own) + foldersIn(dir).map { videosUnder(it, depth = 2) }).map { group -> group.map { it.absolutePath } }
+            val paths = groups.flatten()
+            Folder(
+                dir, paths.size, own.firstOrNull() ?: coverIn(dir),
+                watched = paths.count(settings::watched),
+                shares = groups.map { group -> group.map { Progress.share(settings.position(it), settings.duration(it), settings.watched(it)) } },
+            )
+        }
     return Listing(folders, videosIn(folder))
 }
 
-/** The video stopped partway most recently that's still in the library, or null. */
-private fun lastStopped(app: DesktopApp, root: File): Resume? {
+/** The videos stopped partway that are still in the library, newest first, the last one of each folder only. */
+private fun stopped(app: DesktopApp, root: File): List<Resume> {
     val settings = app.settings
     return settings.recent.asSequence()
         .filter { settings.position(it) > 0 && settings.duration(it) > 0 }
         .map(::File)
         .filter { it.isFile && it.path.startsWith(root.path + File.separator) }
+        // a show is picked up where it was last left, not at each episode stopped along the way; videos at the top stand alone
+        .distinctBy { if (it.parentFile == root) it else it.parentFile }
         .map { video ->
             val parent = video.parentFile
             val title = RecentVideos.title(video.name, videosIn(parent).map { it.name }, settings.tidyNames)
@@ -103,8 +148,15 @@ private fun lastStopped(app: DesktopApp, root: File): Resume? {
                 progress = settings.progress(path),
             )
         }
-        .firstOrNull()
+        .toList()
 }
+
+/** The videos in [folder] and the folders under it, at most [depth] levels down, as a show split into seasons has. */
+private fun videosUnder(folder: File, depth: Int = 3): List<File> =
+    if (depth == 0) emptyList() else videosIn(folder) + foldersIn(folder).flatMap { videosUnder(it, depth - 1) }
+
+private fun foldersIn(folder: File): List<File> =
+    folder.listFiles().orEmpty().filter { it.isDirectory && !it.isHidden }.sortedWith(compareBy(NaturalOrder) { it.name })
 
 /** The first video in [folder]'s subfolders, for a show split into seasons, looking at most [depth] levels down. */
 private fun coverIn(folder: File, depth: Int = 3): File? {
@@ -186,9 +238,45 @@ fun LibraryBody(app: DesktopApp, folder: File?, onOpenFolder: (File) -> Unit, on
             }
         }
     } else {
-        FolderContents(app, current, atRoot = current == root, onOpenFolder, onOpenVideo)
+        // a word at the foot for a moment, after something that has nothing else to show for it
+        var toast by remember { mutableStateOf<Toast?>(null) }
+        var said by remember { mutableStateOf("") }
+        LaunchedEffect(toast) {
+            if (toast != null) {
+                delay(TOAST_MS)
+                toast = null
+            }
+        }
+        Box(Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalToast provides { text -> said = text; toast = Toast() }) {
+                FolderContents(app, current, atRoot = current == root, onOpenFolder, onOpenVideo)
+            }
+            AnimatedVisibility(
+                toast != null,
+                enter = fadeIn() + slideInVertically { it / 2 },
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp),
+            ) {
+                Text(
+                    said,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f), RoundedCornerShape(50))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
     }
 }
+
+/** One showing of a toast: a new one each time, so saying the same thing twice shows it again. */
+private class Toast
+
+private const val TOAST_MS = 1600L
+
+/** Shows a word at the foot of the library for a moment. */
+private val LocalToast = staticCompositionLocalOf<(String) -> Unit> { {} }
 
 @Composable
 private fun FolderContents(
@@ -199,14 +287,16 @@ private fun FolderContents(
     onOpenVideo: (File) -> Unit,
 ) {
     var listing by remember(folder) { mutableStateOf<Listing?>(null) }
-    LaunchedEffect(folder) { listing = withContext(Dispatchers.IO) { list(folder) } }
+    // listed again when a menu changes what's watched, for the folders' counts
+    LaunchedEffect(folder, app.settings.progressChanges) { listing = withContext(Dispatchers.IO) { list(folder, app.settings) } }
     // only at the top of the library, where you land when you open the app
-    var resume by remember(folder) { mutableStateOf<Resume?>(null) }
+    var resume by remember(folder) { mutableStateOf(emptyList<Resume>()) }
     // the grid waits for the first look, so Continue watching doesn't push the folders down after they're drawn
     var looked by remember(folder) { mutableStateOf(!atRoot) }
     val recent = app.settings.recent
-    LaunchedEffect(folder, recent) {
-        if (atRoot) resume = withContext(Dispatchers.IO) { lastStopped(app, folder) }
+    val wanted = atRoot && app.settings.continueWatching
+    LaunchedEffect(folder, recent, wanted) {
+        resume = if (wanted) withContext(Dispatchers.IO) { stopped(app, folder) } else emptyList()
         looked = true
     }
     val shown = listing ?: return
@@ -226,23 +316,30 @@ private fun FolderContents(
         }
         return
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(232.dp),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 28.dp, bottom = 40.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
-    ) {
-        item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
-            PageTitle(title, listOfNotNull(
-                count(shown.folders.size, "folder"),
-                count(shown.videos.size, "video"),
-            ).joinToString(" · "))
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Continue watching fills one row, so the grid's column count is worked out the way GridCells.Adaptive does it
+        val columns = with(LocalDensity.current) {
+            val spacing = 20.dp.roundToPx()
+            maxOf((maxWidth.roundToPx() - 64.dp.roundToPx() + spacing) / (232.dp.roundToPx() + spacing), 1)
         }
-        resume?.let { item ->
-            item(key = "continue", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Continue watching", Modifier.padding(top = 4.dp)) }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(232.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 28.dp, bottom = 40.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
+                PageTitle(title, listOfNotNull(
+                    count(shown.folders.size, "folder"),
+                    count(shown.videos.size, "video"),
+                ).joinToString(" · "))
+            }
+            if (resume.isNotEmpty()) {
+                item(key = "continue", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Continue watching", Modifier.padding(top = 4.dp)) }
+            }
             // the same card as any video, so it sits in the grid's rhythm; it plays from where it stopped
-            item(key = "resume") {
+            items(resume.take(columns), key = { "resume:" + it.video.path }) { item ->
                 Card(
                     app = app,
                     thumbnailOf = item.video,
@@ -252,48 +349,56 @@ private fun FolderContents(
                     title = item.show ?: item.title,
                     subtitle = item.show?.let { "${item.title} · ${item.left}" } ?: item.left,
                     onClick = { onOpenVideo(item.video) },
+                    menu = { close -> VideoMenu(app, item.video, close, onOpenVideo, onGoToFolder = onOpenFolder) },
+                )
+            }
+            // labelled groups only when there are two kinds to tell apart, Continue watching among them
+            val kinds = listOf(resume.isNotEmpty(), shown.folders.isNotEmpty(), shown.videos.isNotEmpty()).count { it }
+            if (kinds > 1 && shown.folders.isNotEmpty()) {
+                item(key = "folders", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Folders", Modifier.padding(top = 10.dp)) }
+            }
+            items(shown.folders, key = { it.dir.path }) { item ->
+                Card(
+                    app = app,
+                    thumbnailOf = item.cover,
+                    badge = null,
+                    progress = 0f,
+                    shares = item.shares,
+                    watched = item.videos > 0 && item.watched >= item.videos,
+                    title = app.settings.title(item.dir.name),
+                    subtitle = Progress.folderDetail(item.videos, if (app.settings.showProgress) item.watched else 0),
+                    onClick = { onOpenFolder(item.dir) },
+                    menu = { close ->
+                        Choice("Mark all as watched", close, { TickIcon(it) }) { videosUnder(item.dir).forEach { app.settings.markWatched(it.absolutePath) } }
+                        Choice("Clear progress", close, { ResetIcon(it) }) { videosUnder(item.dir).forEach { app.settings.clearProgress(it.absolutePath) } }
+                        FileMenu(item.dir, close)
+                    },
+                    folder = true,
+                )
+            }
+            if (kinds > 1 && shown.videos.isNotEmpty()) {
+                item(key = "videos", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Videos", Modifier.padding(top = 10.dp)) }
+            }
+            // numbered by place in the folder: names carry too many other numbers (1080p, 10bit) to guess from
+            itemsIndexed(shown.videos, key = { _, video -> video.path }) { index, video ->
+                Card(
+                    app = app,
+                    thumbnailOf = video,
+                    // a title that already says which episode it is needs no place number beside it
+                    badge = if (app.settings.episodeNumbers && !namesEpisode(videoTitles[index])) "${index + 1}" else null,
+                    progress = remember(video, app.settings.progressChanges) { app.settings.progress(video.absolutePath) },
+                    watched = remember(video, app.settings.progressChanges) { app.settings.watched(video.absolutePath) },
+                    title = videoTitles[index],
+                    subtitle = null,
+                    onClick = { onOpenVideo(video) },
+                    menu = { close -> VideoMenu(app, video, close, onOpenVideo) },
                 )
             }
         }
-        // labelled groups only when there are two kinds to tell apart, Continue watching among them
-        val kinds = listOf(resume != null, shown.folders.isNotEmpty(), shown.videos.isNotEmpty()).count { it }
-        if (kinds > 1 && shown.folders.isNotEmpty()) {
-            item(key = "folders", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Folders", Modifier.padding(top = 10.dp)) }
-        }
-        items(shown.folders, key = { it.dir.path }) { item ->
-            Card(
-                app = app,
-                thumbnailOf = item.cover,
-                badge = null,
-                progress = 0f,
-                title = app.settings.title(item.dir.name),
-                subtitle = when (item.videos) {
-                    0 -> null
-                    1 -> "1 video"
-                    else -> "${item.videos} videos"
-                },
-                onClick = { onOpenFolder(item.dir) },
-                folder = true,
-            )
-        }
-        if (kinds > 1 && shown.videos.isNotEmpty()) {
-            item(key = "videos", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Videos", Modifier.padding(top = 10.dp)) }
-        }
-        // numbered by place in the folder: names carry too many other numbers (1080p, 10bit) to guess from
-        itemsIndexed(shown.videos, key = { _, video -> video.path }) { index, video ->
-            Card(
-                app = app,
-                thumbnailOf = video,
-                // a title that already says which episode it is needs no place number beside it
-                badge = if (app.settings.episodeNumbers && !namesEpisode(videoTitles[index])) "${index + 1}" else null,
-                progress = remember(video) { app.settings.progress(video.absolutePath) },
-                title = videoTitles[index],
-                subtitle = null,
-                onClick = { onOpenVideo(video) },
-            )
-        }
     }
 }
+
+private val CardShadow = Color.Black.copy(alpha = 0.3f)
 
 @Composable
 private fun Card(
@@ -307,19 +412,43 @@ private fun Card(
     folder: Boolean = false,
     // the frame from where it was left, not the video's own
     leftOff: Boolean = false,
+    // what a right click offers, if anything, given a way to close it
+    menu: (@Composable (close: () -> Unit) -> Unit)? = null,
+    // a tick in the corner; for a folder, every video in it
+    watched: Boolean = false,
+    // a folder's videos, a slice each and a group a season, in place of one line
+    shares: List<List<Float>>? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val ring by animateColorAsState(if (hovered) scheme.primary else scheme.primary.copy(alpha = 0f), tween(120), label = "ring")
+    // where a right click was, for the menu to open there; kept after it closes, so it fades out in place
+    var menuOpen by remember { mutableStateOf(false) }
+    var menuAt by remember { mutableStateOf(Offset.Zero) }
+    // ringed while its menu is open too, so it's clear what the menu is for
+    val ring by animateColorAsState(if (hovered || menuOpen) scheme.primary else scheme.primary.copy(alpha = 0f), tween(120), label = "ring")
     Column(
         Modifier.hoverable(interaction).clickable(interaction, indication = null, onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand),
+            .pointerHoverIcon(PointerIcon.Hand)
+            .then(if (menu == null) Modifier else Modifier.pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                            menuAt = event.changes.first().position
+                            menuOpen = true
+                        }
+                    }
+                }
+            }),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(shape).background(scheme.surfaceVariant)
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                // a gentle shadow, lifting the picture off the page
+                .shadow(6.dp, shape, ambientColor = CardShadow, spotColor = CardShadow)
+                .clip(shape).background(scheme.surfaceVariant)
                 .border(1.5.dp, ring, shape),
             contentAlignment = Alignment.Center,
         ) {
@@ -328,6 +457,14 @@ private fun Card(
                 Image(image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else if (folder) {
                 FolderMark(scheme.onSurfaceVariant.copy(alpha = 0.55f))
+            }
+            if (menu != null) {
+                // a point to hang the menu from where the click was, since a menu opens below its anchor
+                Box(Modifier.align(Alignment.TopStart).offset { menuAt.round() }.size(0.dp)) {
+                    PlayerMenu(expanded = menuOpen, onDismiss = { menuOpen = false }, width = 260.dp) {
+                        menu { menuOpen = false }
+                    }
+                }
             }
             if (badge != null) {
                 Text(
@@ -339,11 +476,16 @@ private fun Card(
                         .padding(horizontal = 7.dp, vertical = 2.dp),
                 )
             }
-            if (progress > 0f) {
-                // a thin line along the foot of the frame: how far in, nothing more
-                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x59000000))) {
-                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(scheme.primary))
+            // each kind of mark can be turned off in settings, or all of them
+            val settings = app.settings
+            if (watched && settings.showProgress && settings.progressChecks) WatchedMark(Modifier.align(Alignment.TopEnd).padding(8.dp))
+            if (settings.showProgress) when {
+                // a folder watched all through says so with its tick alone
+                shares != null -> if (settings.folderProgress && !watched && shares.any { group -> group.any { it > 0f } }) {
+                    ProgressSlices(shares, Modifier.align(Alignment.BottomStart))
                 }
+                // a thin line along the foot of the frame: how far in, nothing more
+                progress > 0f -> if (settings.videoProgress) ProgressLine(progress, Modifier.align(Alignment.BottomStart))
             }
         }
         Column(Modifier.padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -359,6 +501,62 @@ private fun Card(
             }
         }
     }
+}
+
+/**
+ * What a right click on a video offers. [onGoToFolder] for one under Continue watching, which can be
+ * taken out of it and found in its folder.
+ */
+@Composable
+private fun VideoMenu(
+    app: DesktopApp,
+    video: File,
+    close: () -> Unit,
+    onOpenVideo: (File) -> Unit,
+    onGoToFolder: ((File) -> Unit)? = null,
+) {
+    val path = video.absolutePath
+    val partway = app.settings.position(path) > 0
+    if (partway) Choice("Play from the start", close, { StartIcon(it) }) { app.settings.clearProgress(path); onOpenVideo(video) }
+    if (!app.settings.watched(path)) Choice("Mark as watched", close, { TickIcon(it) }) { app.settings.markWatched(path) }
+    if (partway || app.settings.watched(path)) Choice("Clear progress", close, { ResetIcon(it) }) { app.settings.clearProgress(path) }
+    if (onGoToFolder != null) {
+        Choice("Go to folder", close, { GoToFolderIcon(it) }) { onGoToFolder(video.parentFile) }
+        Choice("Remove from row", close, { RemoveIcon(it) }) { app.settings.forgetRecent(path) }
+    }
+    FileMenu(video, close)
+}
+
+/** What a right click on any file or folder offers: finding it outside the app. */
+@Composable
+private fun FileMenu(file: File, close: () -> Unit) {
+    val toast = LocalToast.current
+    Choice(revealLabel, close, { RevealIcon(it) }) { reveal(file) }
+    Choice("Copy path", close, { CopyIcon(it) }) {
+        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(file.absolutePath), null)
+        toast("Path copied")
+    }
+}
+
+/** A menu row, with its [icon] in front, that closes the menu as it does what it says. */
+@Composable
+private fun Choice(title: String, close: () -> Unit, icon: @Composable (Color) -> Unit, action: () -> Unit) =
+    MenuChoice(title, selected = false, icon = icon) { close(); action() }
+
+private val revealLabel = when {
+    isMac -> "Show in Finder"
+    isWindows -> "Show in Explorer"
+    else -> "Open containing folder"
+}
+
+/** Shows [file] selected in its folder in the system's file manager; on Linux, which can't select, just opens the folder. */
+private fun reveal(file: File) {
+    val command = when {
+        isMac -> listOf("open", "-R", file.absolutePath)
+        isWindows -> listOf("explorer.exe", "/select,", file.absolutePath)
+        else -> listOf("xdg-open", file.absoluteFile.parent)
+    }
+    runCatching { ProcessBuilder(command).start() }
 }
 
 /** The page's name, large and plain, with what's in it underneath. */

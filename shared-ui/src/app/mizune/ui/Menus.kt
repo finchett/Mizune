@@ -1,5 +1,6 @@
 package app.mizune.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -7,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +32,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -36,6 +40,33 @@ import androidx.compose.ui.unit.sp
  * The parts the player's menus are built from, on the desktop and the phone alike: choices in
  * groups, each group under a [SectionLabel], the way the library groups its cards.
  */
+
+/**
+ * A menu that drops from what it's in: a compact card for these parts, the same on the desktop and
+ * the phone, but for its [shadow] and [color], which the desktop sets for itself.
+ */
+@Composable
+fun MenuCard(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    width: Dp = 320.dp,
+    shadow: Dp = 10.dp,
+    color: Color = MaterialTheme.colorScheme.surface,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier.width(width).padding(horizontal = 6.dp),
+        shape = RoundedCornerShape(12.dp),
+        containerColor = color,
+        tonalElevation = 0.dp,
+        shadowElevation = shadow,
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.6f)),
+        content = content,
+    )
+}
 
 /** How tall a menu's rows are: compact for a pointer, taller on the phone for a finger. */
 val LocalMenuRowHeight = compositionLocalOf { 32.dp }
@@ -74,12 +105,20 @@ fun MenuNote(text: String) = Text(
 
 /**
  * One choice of a group: its [title], what else tells it apart ([detail], muted at the end, never
- * cut short), and a tick in the accent when it's the one [selected].
+ * cut short), and a tick in the accent when it's the one [selected]. An [icon] goes in front,
+ * drawn in the colour it's given (see MenuIcons.kt).
  */
 @Composable
-fun MenuChoice(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) {
+fun MenuChoice(
+    title: String,
+    selected: Boolean,
+    detail: String? = null,
+    icon: (@Composable (Color) -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     val scheme = MaterialTheme.colorScheme
     MenuRow(selected, onClick) {
+        icon?.invoke(scheme.onSurfaceVariant)
         Text(
             title,
             style = MaterialTheme.typography.bodyMedium,

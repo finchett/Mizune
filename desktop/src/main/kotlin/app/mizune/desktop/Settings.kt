@@ -1,6 +1,7 @@
 package app.mizune.desktop
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.mizune.anki.AnkiConnect
@@ -91,6 +92,18 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         private set
     /** Show and folder names without release tags, and episodes as "Episode 1" (see [Titles]). */
     var tidyNames by mutableStateOf(prefs.getBoolean("tidy_names", true))
+        private set
+    /** Continue watching at the top of the library. */
+    var continueWatching by mutableStateOf(prefs.getBoolean("continue_watching", true))
+        private set
+    /** How far through each video and folder the library shows: how many are watched, and, each on its own, ticks, videos' lines and folders' slices. */
+    var showProgress by mutableStateOf(prefs.getBoolean("show_progress", true))
+        private set
+    var progressChecks by mutableStateOf(prefs.getBoolean("progress_checks", true))
+        private set
+    var videoProgress by mutableStateOf(prefs.getBoolean("video_progress", true))
+        private set
+    var folderProgress by mutableStateOf(prefs.getBoolean("folder_progress", false))
         private set
     /** New versions download and go in by themselves; off, they wait to be asked for ([Updater]). */
     var autoUpdate by mutableStateOf(prefs.getBoolean("auto_update", true))
@@ -195,6 +208,11 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun updateCopyLines(value: Boolean) { copyLines = value; prefs.putBoolean("copy_lines", value) }
     fun updateEpisodeNumbers(value: Boolean) { episodeNumbers = value; prefs.putBoolean("episode_numbers", value) }
     fun updateTidyNames(value: Boolean) { tidyNames = value; prefs.putBoolean("tidy_names", value) }
+    fun updateContinueWatching(value: Boolean) { continueWatching = value; prefs.putBoolean("continue_watching", value) }
+    fun updateShowProgress(value: Boolean) { showProgress = value; prefs.putBoolean("show_progress", value) }
+    fun updateProgressChecks(value: Boolean) { progressChecks = value; prefs.putBoolean("progress_checks", value) }
+    fun updateVideoProgress(value: Boolean) { videoProgress = value; prefs.putBoolean("video_progress", value) }
+    fun updateFolderProgress(value: Boolean) { folderProgress = value; prefs.putBoolean("folder_progress", value) }
     fun updateAutoUpdate(value: Boolean) { autoUpdate = value; prefs.putBoolean("auto_update", value) }
     fun updateUpdatesInHeader(value: Boolean) { updatesInHeader = value; prefs.putBoolean("updates_in_header", value) }
 
@@ -258,14 +276,48 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun savePosition(path: String, seconds: Double, duration: Double) {
         val k = key(path)
         if (duration > 0) videos.putDouble("$k.dur", duration)
-        // finished episodes restart from the beginning
-        if (duration > 0 && seconds > duration - 30) videos.remove("$k.pos") else videos.putDouble("$k.pos", seconds)
+        // finished episodes restart from the beginning, and count as watched from then on
+        if (RecentVideos.finished(seconds, duration)) {
+            videos.remove("$k.pos")
+            videos.putBoolean("$k.watched", true)
+        } else {
+            videos.putDouble("$k.pos", seconds)
+        }
         markPlayed(path)
     }
+
+    /** Whether [path] has been watched to the end (or marked so), for its folder's count. */
+    fun watched(path: String): Boolean = videos.getBoolean("${key(path)}.watched", false)
 
     /** The videos played last, newest first, for Continue watching at the top of the library (RecentVideos). */
     var recent by mutableStateOf(prefs.get("recent", "").split('\n').filter { it.isNotEmpty() })
         private set
+
+    /** Counts progress changed from the library's menus, so its cards draw theirs again. */
+    var progressChanges by mutableIntStateOf(0)
+        private set
+
+    /** Forgets where [path] was left and that it was watched: it plays from the start and leaves Continue watching. */
+    fun clearProgress(path: String) {
+        videos.remove("${key(path)}.pos")
+        videos.remove("${key(path)}.watched")
+        forgetRecent(path)
+        progressChanges++
+    }
+
+    /** Counts [path] as watched, as if it had played to the end. */
+    fun markWatched(path: String) {
+        videos.remove("${key(path)}.pos")
+        videos.putBoolean("${key(path)}.watched", true)
+        forgetRecent(path)
+        progressChanges++
+    }
+
+    /** Takes [path] out of Continue watching. Where it was left is kept, so it still picks up from there. */
+    fun forgetRecent(path: String) {
+        recent = recent - path
+        prefs.put("recent", recent.joinToString("\n"))
+    }
 
     private fun markPlayed(path: String) {
         var kept = RecentVideos.played(path, recent)

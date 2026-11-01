@@ -8,6 +8,8 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import app.mizune.library.RecentVideos
+import app.mizune.library.Sitting
 import app.mizune.library.Titles
 import app.mizune.Prefs
 import app.mizune.media.AudioTrack
@@ -104,6 +106,7 @@ class PlayerSession(
 
     private var autoPausedLine = -1
     private var lastCopiedLine = -1
+    private val sitting = Sitting()
 
     fun attach(view: MpvView) {
         this.view = view
@@ -240,6 +243,8 @@ class PlayerSession(
     }
 
     fun savePosition() {
+        // a quick look leaves the video as it was
+        if (RecentVideos.skimmed(sitting.seconds, _duration.value)) return
         prefs.savePosition(videoUri, _position.value, _duration.value)
     }
 

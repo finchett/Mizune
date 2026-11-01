@@ -209,6 +209,42 @@ fun SettingsScreen(app: App, onBack: () -> Unit) {
                     ) { app.prefs.tidyNames = it }
                 }
 
+                SettingsSection("Watching") {
+                    SettingSwitchRow(
+                        title = "Continue watching",
+                        description = "Shows the video you stopped partway at the top of the library.",
+                        initial = app.prefs.continueWatching,
+                    ) { app.prefs.continueWatching = it }
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    var showProgress by remember { mutableStateOf(app.prefs.showProgress) }
+                    SettingSwitchRow(
+                        title = "Show progress",
+                        description = "Shows what you've watched in the library.",
+                        initial = showProgress,
+                    ) { app.prefs.showProgress = it; showProgress = it }
+                    // what it shows, set in from it, while it's on
+                    if (showProgress) Column(Modifier.padding(start = 20.dp)) {
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        SettingSwitchRow(
+                            title = "Checkmarks",
+                            description = "On watched videos, and on folders once every video in them is watched.",
+                            initial = app.prefs.progressChecks,
+                        ) { app.prefs.progressChecks = it }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        SettingSwitchRow(
+                            title = "Video progress",
+                            description = "A line along the foot of a video's picture, as far as you've got.",
+                            initial = app.prefs.videoProgress,
+                        ) { app.prefs.videoProgress = it }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        SettingSwitchRow(
+                            title = "Folder progress",
+                            description = "A slice for each video along the foot of a folder's picture.",
+                            initial = app.prefs.folderProgress,
+                        ) { app.prefs.folderProgress = it }
+                    }
+                }
+
                 SettingsSection("Languages") {
                     LanguageRow(
                         title = "Studying",

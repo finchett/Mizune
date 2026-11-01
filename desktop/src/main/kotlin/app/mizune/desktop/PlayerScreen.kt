@@ -66,6 +66,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
@@ -575,7 +576,7 @@ private fun VideoArea(
             exit = fadeOut(tween(150)),
             modifier = Modifier.align(Alignment.Center),
         ) {
-            next?.let { NextEpisode(app.settings.title(it.name), app.settings.accentOnVideo(), onPlayNext) }
+            next?.let { NextEpisode(app.settings.title(it.name), accentOnVideo(), onPlayNext) }
         }
         AnimatedVisibility(
             visible,
@@ -614,11 +615,9 @@ private fun VideoArea(
     }
 }
 
-/**
- * The theme's accent for things over the video, which is dark in every theme: the accent of the
- * theme's dark side, since a light theme's own (dark green in Jade) would barely show there.
- */
-private fun Settings.accentOnVideo(): Color = themeFamily.dark?.scheme?.primary ?: Color.White
+/** The theme's own accent for things over the video, lifted a little towards white so it shows on the dark of a video. */
+@Composable
+private fun accentOnVideo(): Color = lerp(MaterialTheme.colorScheme.primary, Color.White, 0.15f)
 
 /** Offered over the last frame: the next video in the folder, a click (or Return) away. */
 @Composable
@@ -683,7 +682,7 @@ private fun Controls(
     var scrubbing by remember { mutableStateOf<Double?>(null) }
     val white = Color.White
     val muted = white.copy(alpha = 0.85f)
-    val accent = app.settings.accentOnVideo()
+    val accent = accentOnVideo()
     Row(
         Modifier.fillMaxWidth().height(BAR_HEIGHT)
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
@@ -698,11 +697,12 @@ private fun Controls(
             style = MaterialTheme.typography.titleMedium,
             hoverColor = white,
         )
-        Text(
-            "${formatTime(scrubbing ?: position)} / ${formatTime(duration)}",
-            style = MaterialTheme.typography.labelMedium,
-            color = muted,
-        )
+        // digits of one width, and room for the longest the time gets, so the bar beside it never moves
+        val timeStyle = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum")
+        Box {
+            Text("${formatTime(duration).replace(Regex("\\d"), "0")} / ${formatTime(duration)}", style = timeStyle, color = Color.Transparent)
+            Text("${formatTime(scrubbing ?: position)} / ${formatTime(duration)}", style = timeStyle, color = muted)
+        }
         Box(Modifier.weight(1f).padding(horizontal = 6.dp)) {
             Scrubber(
                 position = scrubbing ?: position,
@@ -720,7 +720,8 @@ private fun Controls(
             )
         }
         LineButtons(app, session, color = muted, hoverColor = white)
-        LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
+        // the panel's footer has the same one, so it's only here while the panel is away
+        if (app.settings.panelHidden) LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
         // on macOS the panel's header has the same cog, so it's only here while the panel is away
         if (ownsFrame || app.settings.panelHidden) TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
         ShaderMenu(app, session, onMenu, accent)
@@ -758,7 +759,7 @@ private fun ShaderMenu(app: DesktopApp, session: PlayerSession, onMenu: (Boolean
         PlayerMenu(expanded = open, onDismiss = { show(false) }, width = 260.dp) {
             @Composable
             fun item(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) =
-                MenuChoice(title, selected, detail, onClick)
+                MenuChoice(title, selected, detail, onClick = onClick)
             MenuGroup("Anime4K", first = true)
             if (!session.player.runsShaders) MenuNote("Needs OpenGL, which isn't available here")
             Anime4K.Preset.entries.forEach { preset ->
@@ -940,7 +941,7 @@ private fun TrackMenu(
         PlayerMenu(expanded = open, onDismiss = { show(false) }) {
             @Composable
             fun item(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) =
-                MenuChoice(title, selected, detail, onClick)
+                MenuChoice(title, selected, detail, onClick = onClick)
             MenuGroup("Picture", note = "Z", first = true)
             MenuSegments(listOf("Whole picture", "Fill the area"), if (settings.videoFill) 1 else 0) {
                 settings.updateVideoFill(it == 1)

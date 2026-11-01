@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.layout.mandatorySystemGestures
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -114,6 +115,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -286,13 +288,14 @@ private fun DrawScope.videoEndCorners(radius: Float, inset: Float, color: Color)
 
 /**
  * A grip where the panel can be pulled back from, with it off screen (see [edgeDrag]), shown
- * while [visible]; nothing is drawn on the edge otherwise.
+ * while [visible]; nothing is drawn on the edge otherwise. Light or dark to stand out on [behind].
  */
 @Composable
-private fun PanelGrip(visible: Boolean, modifier: Modifier) {
+private fun PanelGrip(visible: Boolean, behind: Color, modifier: Modifier) {
+    val color = if (behind.luminance() < 0.5f) Color.White.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.45f)
     Box(modifier, contentAlignment = Alignment.Center) {
         AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
-            Box(Modifier.width(4.dp).height(28.dp).background(Color(0x998A8E95), RoundedCornerShape(3.dp)))
+            Box(Modifier.width(4.dp).height(28.dp).background(color, RoundedCornerShape(3.dp)))
         }
     }
 }
@@ -627,7 +630,8 @@ fun PlayerScreen(
                 val insetPx = with(LocalDensity.current) { HIDDEN_EDGE_INSET.toPx() }
                 val videoEndGap by animateDpAsState(if (panelHidden) gap else gap / 2, tween(220), label = "video end gap")
                 val screenColor = if (rounded) MaterialTheme.colorScheme.background else Color.Black
-                // put away, the panel shows for a moment where it can be pulled back from
+                // put away, the panel shows for a moment where it can be pulled back from, and for as
+                // long as the video is paused
                 var showGrip by remember { mutableStateOf(false) }
                 var opening by remember { mutableStateOf(true) }
                 LaunchedEffect(panelHidden) {
@@ -699,7 +703,8 @@ fun PlayerScreen(
                     // mid-height on the edge, taking no layout space: the grip, and with the panel off
                     // screen, the part of the zone kept from the back swipe
                     PanelGrip(
-                        visible = showGrip,
+                        visible = panelHidden && (showGrip || paused),
+                        behind = screenColor,
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .offset { IntOffset((edgeX() - zonePx / 2).roundToInt(), 0) }
@@ -764,8 +769,8 @@ fun PlayerScreen(
  * video does; while [dismiss] is set, that tap calls it instead of playing or pausing. With
  * [lineGestures] (the panel off screen) it takes the panel's: swipes move a line at a time, a
  * double tap in the middle stops at the end of every line (the edges still jump), and a hold is
- * reported to [onHold]. Scrubbing is then on the seek line, while paused. The seek line's touch
- * strip reaches [bottomClear] further up than it would, out of the system's swipes.
+ * reported to [onHold]. Scrubbing is then on the seek line, while paused. The seek line, its touch
+ * strip and the time sit [bottomClear] up from the bottom, out of the system's swipes.
  * With [surfaceWidth], the video surface keeps that width, running on past the right edge (whatever
  * is there must cover it), and the picture is kept to the part that shows: a surface that changes
  * size lags the rest of the screen, so the video would jump as the panel moves.
@@ -1120,7 +1125,7 @@ private fun VideoArea(
                     "${formatTime(position)} / ${formatTime(duration)}",
                     color = Color.White,
                     style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = VIDEO_INSET, bottom = 16.dp)
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = SEEK_SIDE, bottom = 16.dp + bottomClear)
                         .background(OVER_VIDEO, RoundedCornerShape(8.dp))
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 )
@@ -1130,9 +1135,10 @@ private fun VideoArea(
         }
         if (showOptions) PlayerOptions(session, onDismiss = { showOptions = false })
 
-        // seek bar: a thin line on the bottom edge, hidden while playing. While paused it can be
-        // tapped or dragged (via an invisible touch strip, reaching up past the system's swipes);
-        // it fattens while held.
+        // seek bar: a thin line along the bottom, hidden while playing. While paused it can be
+        // tapped or dragged (via an invisible touch strip above it); it fattens while held. Held
+        // sideways, line and strip sit above the system's swipes at the screen's edge, since a drag
+        // that starts in there and drifts upwards is taken for going home ("swipe up again").
         AnimatedVisibility(
             visible = paused || scrubTarget != null,
             enter = fadeIn(),
@@ -1143,11 +1149,16 @@ private fun VideoArea(
             val fraction = if (duration > 0) (shown / duration).toFloat().coerceIn(0f, 1f) else 0f
             var held by remember { mutableStateOf(false) }
             val barHeight by animateDpAsState(if (held) 10.dp else 4.dp, label = "seekBarHeight")
-            fun timeAt(x: Float) = (x / widthPx).coerceIn(0f, 1f) * session.duration.value
+            // the line is held in from the sides so a finger can reach either end; a touch past an end is that end
+            val sidePx = with(LocalDensity.current) { SEEK_SIDE.toPx() }
+            fun timeAt(x: Float) = ((x - sidePx) / (widthPx - 2 * sidePx)).coerceIn(0f, 1f) * session.duration.value
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(32.dp + bottomClear)
+                    .padding(bottom = bottomClear)
+                    .height(32.dp)
+                    // held sideways, the strip reaches the edges the system's back swipe comes from
+                    .systemGestureExclusion()
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -1184,7 +1195,7 @@ private fun VideoArea(
                     },
                 contentAlignment = Alignment.BottomStart,
             ) {
-                Box(Modifier.fillMaxWidth().height(barHeight).background(Color(0x33FFFFFF))) {
+                Box(Modifier.padding(horizontal = SEEK_SIDE).fillMaxWidth().height(barHeight).background(Color(0x33FFFFFF))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(MaterialTheme.colorScheme.primary))
                 }
             }
@@ -1194,6 +1205,9 @@ private fun VideoArea(
 
 /** The shade behind everything drawn over the video: buttons, the time, notices. */
 private val OVER_VIDEO = Color(0x80000000)
+
+/** How far the seek line, and the time over its start, are held in from each side of the video. */
+private val SEEK_SIDE = 24.dp
 
 /** How far the buttons and the time sit in from the video's edges. */
 private val VIDEO_INSET = 12.dp
