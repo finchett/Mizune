@@ -250,7 +250,8 @@ fun main(args: Array<String>) {
             }
             val fullscreen = isFullscreen()
             SideEffect { keys.fullscreen = fullscreen }
-            val frame = remember { if (ownsFrame) WindowFrame(window, windowState) else null }
+            val ownWindow = remember { WindowFrame(window, windowState) }
+            val frame = ownWindow.takeIf { ownsFrame }
             LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(720, 480) }
             // the window's place is kept as it moves and resizes; maximised keeps the floating
             // bounds to come back to, and full screen isn't kept at all
@@ -273,6 +274,7 @@ fun main(args: Array<String>) {
             DesktopTheme(app.settings.themeFamily, app.settings.themeMode) {
                 CompositionLocalProvider(
                     LocalWindowFrame provides frame?.takeIf { !fullscreen },
+                    LocalMovableWindow provides ownWindow.takeIf { !fullscreen },
                     LocalTrafficLights provides (isMac && !fullscreen),
                     LocalCorners provides Corners(if (fullscreen) 0.0 else MacTrafficLights.cornerRadius),
                     LocalAppIcon provides iconName,
