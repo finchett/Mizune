@@ -27,6 +27,7 @@ object MacTrafficLights {
     const val LIGHT_RADIUS = 7.0
     const val LIGHT_SPACING = 20.0
     private val DEBUG = System.getProperty("mizune.debugLights") != null
+    private const val NS_WINDOW_STYLE_MASK_FULL_SCREEN = 1L shl 14
 
     private val objc by lazy { NativeLibrary.getInstance("objc") }
     private val msgSend by lazy { objc.getFunction("objc_msgSend") }
@@ -81,6 +82,10 @@ object MacTrafficLights {
                     val radius = msgSend.invokeDouble(arrayOf(window, sel("_cornerRadius")))
                     if (radius > 0 && radius != cornerRadius) Snapshot.withMutableSnapshot { cornerRadius = radius }
                 }
+
+                // in full screen the lights live in the bar that slides down from the top, laid out
+                // by AppKit; moving them there only has it put them back, a flicker on the way in
+                if (sendLong(window, "styleMask") and NS_WINDOW_STYLE_MASK_FULL_SCREEN != 0L) return@onMain
 
                 val buttons = (0..2).map { send(window, "standardWindowButton:", it.toLong()) }
                 if (buttons.any { it == null }) return@onMain
@@ -140,16 +145,26 @@ object MacTrafficLights {
         sendVoid(png, "writeToFile:atomically:", nsPath, 1.toByte())
     }
 
-    /** The app's (single) AWT window: AWTWindow_Normal, as opposed to file dialogs and menus. */
+    /**
+     * The app's (single) AWT window: an AWTWindow_Normal, as opposed to file dialogs and menus.
+     * Asked as a kind of class, not by name: once something observes the window (full screen
+     * does), AppKit swaps its class for a subclass, NSKVONotifying_AWTWindow_Normal, and a match
+     * by name stopped finding it, which left the lights wherever AppKit put them.
+     */
     private fun appWindow(): Pointer? {
         val app = send(cls("NSApplication"), "sharedApplication")
         val windows = send(app, "windows") ?: return null
+        val awtWindow = cls("AWTWindow_Normal")
         val count = sendLong(windows, "count")
         for (i in 0 until count) {
             val w = send(windows, "objectAtIndex:", i) ?: continue
-            val className = objc.getFunction("object_getClassName").invokeString(arrayOf(w), false)
-            if (DEBUG) println("lights: window class=$className visible=${sendLong(w, "isVisible") and 0xFF}")
-            if (className == "AWTWindow_Normal" && (sendLong(w, "isVisible") and 0xFF) != 0L) return w
+            val isAwt = sendLong(w, "isKindOfClass:", awtWindow) and 0xFF != 0L
+            val visible = sendLong(w, "isVisible") and 0xFF != 0L
+            if (DEBUG) {
+                val className = objc.getFunction("object_getClassName").invokeString(arrayOf(w), false)
+                println("lights: window class=$className visible=$visible")
+            }
+            if (isAwt && visible) return w
         }
         return null
     }

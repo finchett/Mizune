@@ -464,7 +464,8 @@ private val BAR_HEIGHT = 40.dp
  * They stay while it's there or on them, and go once it's back in the quiet area.
  *
  * [overlay] is drawn over it all, told whether the controls are up; while [dismiss] is set, a
- * click on the video calls it instead of playing or pausing.
+ * click on the video calls it instead of playing or pausing. A drag on the video moves the window,
+ * except where the line, a lookup or the controls take it.
  */
 @Composable
 private fun VideoArea(
@@ -536,7 +537,9 @@ private fun VideoArea(
                     onTap = { currentDismiss?.invoke() ?: session.togglePause() },
                     onDoubleTap = { keys.onToggleFullscreen() },
                 )
-            },
+            }
+            // after the taps, so it sees a drag first and the tap gives way to it
+            .dragMovesWindow(),
     ) {
         VideoSurface(session.player, Modifier.fillMaxSize())
         val notice = keys.notice

@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -43,7 +42,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -179,7 +177,8 @@ private fun Pill(update: UpdateState, progress: Float?, modifier: Modifier, onCl
         },
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .clip(RoundedCornerShape(50))
+            // squared off like the header's other controls and the cards below it, not a capsule
+            .clip(RoundedCornerShape(7.dp))
             .background(primary.copy(alpha = if (hovered) 0.22f else 0.13f))
             .drawBehind { drawRect(primary.copy(alpha = fillAlpha), size = Size(size.width * filled, size.height)) }
             .hoverable(interaction)
@@ -192,7 +191,7 @@ private fun Pill(update: UpdateState, progress: Float?, modifier: Modifier, onCl
             style = MaterialTheme.typography.labelLarge,
             color = primary,
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
 }
@@ -219,7 +218,7 @@ private fun WhatsNewDialog(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // the icon carries its own margin, so 64 dp draws a 52 dp tile
-                Image(painterResource("icon.png"), contentDescription = null, modifier = Modifier.size(64.dp))
+                AppIcon(64.dp)
                 Column {
                     Text(
                         eyebrow.uppercase(),

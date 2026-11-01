@@ -38,20 +38,25 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.painterResource
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import app.mizune.desktop.mpv.MpvPlayer
 import app.mizune.subs.SubtitleEncoding
 import app.mizune.ui.Motion
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import java.io.File
 import kotlin.system.exitProcess
 
 private sealed interface Screen {
-    data class Library(val folder: File?) : Screen
+    /** [focus]: a video in [folder] to scroll to and point out. */
+    data class Library(val folder: File?, val focus: File? = null) : Screen
     data class Player(val video: File, val from: File?) : Screen
     data class Settings(val from: Screen) : Screen
     /** The first launch's welcome and setup. */
@@ -70,7 +75,13 @@ fun main(args: Array<String>) {
     SubtitleEncoding.missing().takeIf { it.isNotEmpty() }?.let { System.err.println("subtitles: missing code pages ${it.joinToString()}") }
 
     application {
-        val windowState = rememberWindowState(width = 1440.dp, height = 860.dp)
+        // where the window was left, or a size that fits the screen on a first launch
+        val place = remember { WindowPlace.onLaunch(app.settings.windowPlace()) }
+        val windowState = rememberWindowState(
+            position = place?.let { WindowPosition(it.bounds.x.dp, it.bounds.y.dp) } ?: WindowPosition.PlatformDefault,
+            size = place?.let { DpSize(it.bounds.width.dp, it.bounds.height.dp) }
+                ?: DpSize(WindowPlace.DEFAULT_WIDTH.dp, WindowPlace.DEFAULT_HEIGHT.dp),
+        )
         // one mpv for the app's lifetime, created when the first video opens
         val player = remember { lazy { MpvPlayer() } }
         // a video passed on the command line ("Open with…") opens straight away
@@ -240,14 +251,34 @@ fun main(args: Array<String>) {
             }
             val fullscreen = isFullscreen()
             SideEffect { keys.fullscreen = fullscreen }
-            val frame = remember { if (ownsFrame) WindowFrame(window, windowState) else null }
+            val ownWindow = remember { WindowFrame(window, windowState) }
+            val frame = ownWindow.takeIf { ownsFrame }
             LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(720, 480) }
+            // the window's place is kept as it moves and resizes; maximised keeps the floating
+            // bounds to come back to, and full screen isn't kept at all
+            LaunchedEffect(Unit) {
+                if (place?.maximized == true) frame?.maximize() ?: run { windowState.placement = WindowPlacement.Maximized }
+                var floating = place?.bounds
+                snapshotFlow { listOf(windowState.placement, windowState.position, windowState.size, windowState.isMinimized, isFullscreen()) }
+                    .collectLatest {
+                        delay(500) // once it settles
+                        if (windowState.isMinimized || isFullscreen()) return@collectLatest
+                        when (windowState.placement) {
+                            WindowPlacement.Floating -> floating = window.bounds
+                            WindowPlacement.Maximized -> Unit
+                            WindowPlacement.Fullscreen -> return@collectLatest
+                        }
+                        floating?.let { app.settings.saveWindowPlace(WindowPlace(it, windowState.placement == WindowPlacement.Maximized)) }
+                    }
+            }
             if (isWindows) LaunchedEffect(windowsFullscreen) { WindowsFullscreen.set(window, windowsFullscreen) }
             DesktopTheme(app.settings.themeFamily, app.settings.themeMode) {
                 CompositionLocalProvider(
                     LocalWindowFrame provides frame?.takeIf { !fullscreen },
+                    LocalMovableWindow provides ownWindow.takeIf { !fullscreen },
                     LocalTrafficLights provides (isMac && !fullscreen),
                     LocalCorners provides Corners(if (fullscreen) 0.0 else MacTrafficLights.cornerRadius),
+                    LocalAppIcon provides iconName,
                 ) {
                     // keep the session of each player screen, so a closing player still shows its last frame
                     val sessions = remember { HashMap<Screen.Player, PlayerSession>() }
@@ -401,6 +432,8 @@ private fun Browse(
                             app, s.folder,
                             onOpenFolder = { navigate(Screen.Library(it)) },
                             onOpenVideo = { onOpenVideo(it, s.folder ?: it.parentFile) },
+                            focus = s.focus,
+                            onShowVideo = { navigate(Screen.Library(it.parentFile, focus = it)) },
                         )
                     }
                 },

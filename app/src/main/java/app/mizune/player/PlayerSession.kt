@@ -84,6 +84,9 @@ class PlayerSession(
     private val _fill = MutableStateFlow(prefs.videoFill)
     val fill: StateFlow<Boolean> = _fill.asStateFlow()
 
+    private val _landscapeLock = MutableStateFlow(prefs.landscapeLock)
+    val landscapeLock: StateFlow<Boolean> = _landscapeLock.asStateFlow()
+
     // pause when another app (or a call) takes the audio; we don't auto-resume
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -173,6 +176,11 @@ class PlayerSession(
         _fill.value = fill
         prefs.videoFill = fill
         view?.setFill(fill)
+    }
+
+    fun setLandscapeLock(locked: Boolean) {
+        _landscapeLock.value = locked
+        prefs.landscapeLock = locked
     }
 
     fun togglePause() {
