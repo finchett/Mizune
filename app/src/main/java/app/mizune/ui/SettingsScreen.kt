@@ -576,7 +576,7 @@ private fun ShoulderTriggerSettings(app: App) {
 }
 
 /** The name of the library folder behind a tree URI, or null when there isn't one. */
-private fun libraryFolderName(context: android.content.Context, treeUri: String?): String? {
+internal fun libraryFolderName(context: android.content.Context, treeUri: String?): String? {
     val uri = treeUri ?: return null
     return runCatching { DocumentFile.fromTreeUri(context, Uri.parse(uri))?.takeIf { it.canRead() }?.name }
         .getOrNull() ?: Uri.parse(uri).lastPathSegment

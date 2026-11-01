@@ -34,7 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** What AnkiDroid reported: the collection's note types and decks. */
-private class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
+internal class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
 
 /** The Anki section of the settings: cards go to AnkiDroid on the phone. */
 @Composable
@@ -78,11 +78,12 @@ fun AnkiSettings(app: App) {
     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
     val connected = collection?.getOrNull()
     if (connected == null) {
-        val problem = AnkiDroid.unavailable(context) ?: collection?.exceptionOrNull()?.message
+        val problem = AnkiDroid.unavailable(context)
         SettingRow(
             "AnkiDroid",
-            // a fresh AnkiDroid has no collection until it has been opened once
-            problem ?: if (collection == null) "Connecting…" else "Couldn't reach AnkiDroid. Open it once, then retry.",
+            // installed and allowed, AnkiDroid answers other apps only with its API on, and only once it has a collection
+            problem ?: if (collection == null) "Connecting…"
+            else "Couldn't reach AnkiDroid. In AnkiDroid, turn on Settings › Advanced › Enable AnkiDroid API, then retry. If it's new, open it once first.",
         ) {
             when {
                 !AnkiDroid.installed(context) -> Unit
@@ -119,13 +120,8 @@ fun AnkiSettings(app: App) {
         val name = noteType ?: return@LaunchedEffect
         val names = withContext(Dispatchers.IO) { runCatching { AnkiDroid(context).fieldNames(name) }.getOrNull() }
             ?: return@LaunchedEffect
-        val saved = prefs.cardFormat(name)
-        val current = if (saved == null || saved.fields.keys != names.toSet()) {
-            val suggested = CardFormats.forNoteType(name, names).fields
-            CardFormat(name, names.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }).also(prefs::saveCardFormat)
-        } else saved
+        format = prefs.fillCardFormat(name, names)
         fields = names
-        format = current
     }
     val shownFormat = format?.takeIf { it.noteType == noteType }
     if (shownFormat != null) {

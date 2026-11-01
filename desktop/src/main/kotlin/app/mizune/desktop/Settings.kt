@@ -192,6 +192,14 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         prefs.put("anki_formats", all.toString())
     }
 
+    /** Gives [noteType] a source for each of [fieldNames]: as saved where it still fits, otherwise suggested. */
+    fun fillCardFormat(noteType: String, fieldNames: List<String>) {
+        val saved = cardFormat(noteType)
+        if (saved != null && saved.fields.keys == fieldNames.toSet()) return
+        val suggested = CardFormats.forNoteType(noteType, fieldNames).fields
+        saveCardFormat(CardFormat(noteType, fieldNames.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }))
+    }
+
     fun updateAnkiEnabled(value: Boolean) { ankiEnabled = value; prefs.putBoolean("anki_enabled", value) }
     fun updateAnkiUrl(value: String) { ankiUrl = value; prefs.put("anki_url", value) }
     fun updateAnkiDeck(value: String) { ankiDeck = value; prefs.put("anki_deck", value) }

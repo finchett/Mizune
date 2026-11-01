@@ -18,6 +18,11 @@ class Prefs(context: Context) {
         get() = prefs.getString("library_tree_uri", null)
         set(value) = prefs.edit { putString("library_tree_uri", value) }
 
+    /** Whether the welcome has run; anyone who'd picked a library before it existed has seen enough. */
+    var onboarded: Boolean
+        get() = prefs.getBoolean("onboarded", libraryTreeUri != null)
+        set(value) = prefs.edit { putBoolean("onboarded", value) }
+
     /** Whether the anonymous usage counts are sent (UsageStats); on unless turned off. */
     var usageStats: Boolean
         get() = prefs.getBoolean("usage_stats", true)
@@ -205,6 +210,14 @@ class Prefs(context: Context) {
 
     fun saveCardFormat(format: CardFormat) {
         ankiFormats = ankiFormats.put(format.noteType, format.toJson())
+    }
+
+    /** Gives [noteType] a source for each of [fieldNames]: as saved where it still fits, otherwise suggested. */
+    fun fillCardFormat(noteType: String, fieldNames: List<String>): CardFormat {
+        val saved = cardFormat(noteType)
+        if (saved != null && saved.fields.keys == fieldNames.toSet()) return saved
+        val suggested = CardFormats.forNoteType(noteType, fieldNames).fields
+        return CardFormat(noteType, fieldNames.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }).also(::saveCardFormat)
     }
 
     /** Where new cards go, or an [AnkiException] saying what still has to be chosen. */
