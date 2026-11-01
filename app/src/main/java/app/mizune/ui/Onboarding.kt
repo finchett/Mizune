@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +53,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -191,16 +191,18 @@ private fun ColumnScope.LookStep(app: App) {
     Eyebrow("Step 1 of 4")
     Headline("Pick a look")
     Spacer(Modifier.height(10.dp))
-    Body("Your eyes, your call. System follows your phone's light and dark mode.")
+    Body("Your eyes, your call. Auto follows your phone's light and dark mode.")
     Spacer(Modifier.height(24.dp))
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        ThemeSwatch("System", null, app.appearance.theme == null) { app.appearance.updateTheme(null) }
-        AppTheme.entries.forEach { theme ->
-            ThemeSwatch(theme.label, theme, app.appearance.theme == theme) { app.appearance.updateTheme(theme) }
-        }
+    // the picker Settings › Appearance uses
+    CompositionLocalProvider(LocalMenuRowHeight provides 40.dp) {
+        ThemePicker(
+            app.appearance.family,
+            app.appearance.mode,
+            app.appearance::updateFamily,
+            app.appearance::updateMode,
+            Modifier.fillMaxWidth(),
+            columns = 3,
+        )
     }
 }
 
