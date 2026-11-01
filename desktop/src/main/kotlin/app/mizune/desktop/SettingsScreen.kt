@@ -116,15 +116,7 @@ private val ContentWidth = 620.dp
 @Composable
 fun SettingsHeader(pane: SettingsPane) {
     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            pane.label,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = LocalHeaderLead.current),
-        )
+        Text(pane.label, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

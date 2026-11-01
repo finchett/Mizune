@@ -278,7 +278,6 @@ fun main(args: Array<String>) {
                     LocalMovableWindow provides ownWindow.takeIf { !fullscreen },
                     LocalTrafficLights provides (isMac && !fullscreen),
                     LocalCorners provides Corners(if (fullscreen) 0.0 else MacTrafficLights.cornerRadius),
-                    LocalAppIcon provides iconName,
                 ) {
                     // keep the session of each player screen, so a closing player still shows its last frame
                     val sessions = remember { HashMap<Screen.Player, PlayerSession>() }
