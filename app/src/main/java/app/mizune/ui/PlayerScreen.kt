@@ -1168,8 +1168,8 @@ private fun VideoArea(
         }
         if (showOptions) PlayerOptions(session, onDismiss = { showOptions = false })
 
-        // seek bar: a thin line along the bottom, hidden while playing. While paused it can be
-        // tapped or dragged (via an invisible touch strip above it); it fattens while held. Held
+        // seek bar: a thin rounded line along the bottom, as on desktop, hidden while playing. While
+        // paused it can be tapped or dragged (via an invisible touch strip above it); it fattens while held. Held
         // sideways, line and strip sit above the system's swipes at the screen's edge, since a drag
         // that starts in there and drifts upwards is taken for going home ("swipe up again").
         AnimatedVisibility(
@@ -1181,7 +1181,7 @@ private fun VideoArea(
             val shown = scrubTarget ?: position
             val fraction = if (duration > 0) (shown / duration).toFloat().coerceIn(0f, 1f) else 0f
             var held by remember { mutableStateOf(false) }
-            val barHeight by animateDpAsState(if (held) 10.dp else 4.dp, label = "seekBarHeight")
+            val barHeight by animateDpAsState(if (held) 6.dp else 3.dp, label = "seekBarHeight")
             // the line is held in from the sides so a finger can reach either end; a touch past an end is that end
             val sidePx = with(LocalDensity.current) { SEEK_SIDE.toPx() }
             fun timeAt(x: Float) = ((x - sidePx) / (widthPx - 2 * sidePx)).coerceIn(0f, 1f) * session.duration.value
@@ -1228,8 +1228,8 @@ private fun VideoArea(
                     },
                 contentAlignment = Alignment.BottomStart,
             ) {
-                Box(Modifier.padding(horizontal = SEEK_SIDE).fillMaxWidth().height(barHeight).background(Color(0x33FFFFFF))) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(MaterialTheme.colorScheme.primary))
+                Box(Modifier.padding(horizontal = SEEK_SIDE).fillMaxWidth().height(barHeight).background(Color.White.copy(alpha = 0.28f), CircleShape)) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(MaterialTheme.colorScheme.primary, CircleShape))
                 }
             }
         }
