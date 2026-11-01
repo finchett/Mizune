@@ -47,6 +47,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -704,9 +707,9 @@ private val HiddenCursor = PointerIcon(
 
 /**
  * The bar along the bottom of the video, one compact row and the same in both layouts: play,
- * the time, the seek bar across the middle, then the volume, the line buttons, the menus and the panel, and
- * off macOS (where the green traffic light does it) full screen. [onScrubbing] tells while a
- * scrub is under way.
+ * the time, the seek bar across the middle, then the line buttons and the stop at the line's end,
+ * the volume, the menus and the panel, and off macOS (where the green traffic light does it) full
+ * screen. [onScrubbing] tells while a scrub is under way.
  */
 @Composable
 private fun Controls(
@@ -759,10 +762,10 @@ private fun Controls(
                 color = accent,
             )
         }
-        VolumeControl(app.settings, color = muted, hoverColor = white, accent = accent)
         LineButtons(app, session, color = muted, hoverColor = white)
         // the panel's footer has the same one, so it's only here while the panel is away
         if (app.settings.panelHidden) LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
+        VolumeControl(app.settings, session, color = muted, hoverColor = white, accent = accent)
         // on macOS the panel's header has the same cog, so it's only here while the panel is away
         if (ownsFrame || app.settings.panelHidden) TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
         ShaderMenu(app, session, onMenu, accent)
@@ -772,65 +775,93 @@ private fun Controls(
 }
 
 /**
- * The speaker mutes and unmutes; the slider beside it sets the volume, by a click, a drag or the
- * scroll wheel. Moving the slider unmutes.
+ * The speaker mutes and unmutes. Hovering it slides out the slider to its left, which sets the
+ * volume by a click or a drag; the scroll wheel works over either. Moving the slider unmutes.
+ * It follows the pointer from the press, and each change goes straight to the player rather than
+ * waiting for the next frame.
  */
 @Composable
-private fun VolumeControl(settings: Settings, color: Color, hoverColor: Color, accent: Color) {
+private fun VolumeControl(settings: Settings, session: PlayerSession, color: Color, hoverColor: Color, accent: Color) {
     val volume = settings.volume
     val muted = settings.muted
     fun set(value: Int) {
+        val before = settings.volume
         settings.updateVolume(value)
-        if (settings.muted) settings.updateMuted(false)
+        if (settings.volume != before) session.player.property("volume", settings.volume.toString())
+        if (settings.muted) {
+            settings.updateMuted(false)
+            session.player.property("mute", "no")
+        }
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    val area = remember { MutableInteractionSource() }
+    val areaHovered by area.collectIsHoveredAsState()
+    var held by remember { mutableStateOf(false) }
+    Row(
+        Modifier.hoverable(area)
+            .onPointerEvent(PointerEventType.Scroll) { event ->
+                val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: return@onPointerEvent
+                if (dy != 0f) set(settings.volume + if (dy < 0) 5 else -5)
+                event.changes.forEach { it.consume() }
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // it grows leftwards, so the speaker stays under the pointer
+        AnimatedVisibility(
+            areaHovered || held,
+            enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
+            exit = shrinkHorizontally(shrinkTowards = Alignment.End) + fadeOut(),
+        ) {
+            val interaction = remember { MutableInteractionSource() }
+            val hovered by interaction.collectIsHoveredAsState()
+            val thickness by animateDpAsState(if (hovered || held) 5.dp else 3.dp, label = "volume")
+            fun at(x: Float, width: Int) = ((x / width).coerceIn(0f, 1f) * 100).roundToInt()
+            Canvas(
+                Modifier.padding(start = 2.dp, end = 4.dp).width(VOLUME_WIDTH).height(14.dp)
+                    .hoverable(interaction)
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .semantics { contentDescription = "Volume" }
+                    // no waiting for the release, or for the pointer to travel before a drag counts
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            down.consume()
+                            held = true
+                            try {
+                                set(at(down.position.x, size.width))
+                                drag(down.id) { change ->
+                                    change.consume()
+                                    set(at(change.position.x, size.width))
+                                }
+                            } finally {
+                                held = false
+                            }
+                        }
+                    },
+            ) {
+                val h = thickness.toPx()
+                val y = (size.height - h) / 2
+                val radius = CornerRadius(h / 2)
+                val fraction = if (muted) 0f else volume / 100f
+                drawRoundRect(Color.White.copy(alpha = 0.28f), Offset(0f, y), Size(size.width, h), radius)
+                drawRoundRect(if (hovered || held) accent else Color.White, Offset(0f, y), Size(size.width * fraction, h), radius)
+            }
+        }
         val hint = if (muted) "Unmute" else "Mute"
         Hint(hint, null) {
             IconAction(
-                { settings.updateMuted(!muted) },
+                {
+                    settings.updateMuted(!muted)
+                    session.player.property("mute", if (settings.muted) "yes" else "no")
+                },
                 modifier = Modifier.semantics { contentDescription = hint },
                 color = color,
                 hoverColor = hoverColor,
             ) { VolumeIcon(it, volume / 100f, muted) }
         }
-        val interaction = remember { MutableInteractionSource() }
-        val hovered by interaction.collectIsHoveredAsState()
-        var held by remember { mutableStateOf(false) }
-        val thickness by animateDpAsState(if (hovered || held) 5.dp else 3.dp, label = "volume")
-        fun at(x: Float, width: Int) = ((x / width).coerceIn(0f, 1f) * 100).roundToInt()
-        Canvas(
-            Modifier.width(VOLUME_WIDTH).height(14.dp)
-                .hoverable(interaction)
-                .pointerHoverIcon(PointerIcon.Hand)
-                .semantics { contentDescription = "Volume" }
-                .onPointerEvent(PointerEventType.Scroll) { event ->
-                    val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: return@onPointerEvent
-                    if (dy != 0f) set(settings.volume + if (dy < 0) 5 else -5)
-                    event.changes.forEach { it.consume() }
-                }
-                .pointerInput(Unit) { detectTapGestures { set(at(it.x, size.width)) } }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { held = true; set(at(it.x, size.width)) },
-                        onDragEnd = { held = false },
-                        onDragCancel = { held = false },
-                    ) { change, _ ->
-                        change.consume()
-                        set(at(change.position.x, size.width))
-                    }
-                },
-        ) {
-            val h = thickness.toPx()
-            val y = (size.height - h) / 2
-            val radius = CornerRadius(h / 2)
-            val fraction = if (muted) 0f else volume / 100f
-            drawRoundRect(Color.White.copy(alpha = 0.28f), Offset(0f, y), Size(size.width, h), radius)
-            drawRoundRect(if (hovered || held) accent else Color.White, Offset(0f, y), Size(size.width * fraction, h), radius)
-        }
     }
 }
 
-private val VOLUME_WIDTH = 64.dp
+private val VOLUME_WIDTH = 56.dp
 
 /** Anime4K's preset, and its mode under Advanced: the same settings as Settings › Appearance › Shaders. */
 @Composable
