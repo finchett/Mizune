@@ -1083,6 +1083,73 @@ private fun VideoArea(
                 },
         )
 
+        // seek bar: a thin rounded line along the bottom, as on desktop, hidden while playing. While
+        // paused it can be tapped or dragged (via an invisible touch strip above it); it fattens while held. Held
+        // sideways, line and strip sit above the system's swipes at the screen's edge, since a drag
+        // that starts in there and drifts upwards is taken for going home ("swipe up again").
+        // Drawn under the line over the video, so a tap on its words is theirs, not the strip's.
+        AnimatedVisibility(
+            visible = !loading && (paused || scrubTarget != null),
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomStart),
+        ) {
+            val shown = scrubTarget ?: position
+            val fraction = if (duration > 0) (shown / duration).toFloat().coerceIn(0f, 1f) else 0f
+            var held by remember { mutableStateOf(false) }
+            val barHeight by animateDpAsState(if (held) 6.dp else 3.dp, label = "seekBarHeight")
+            // the line is held in from the sides so a finger can reach either end; a touch past an end is that end
+            val sidePx = with(LocalDensity.current) { SEEK_SIDE.toPx() }
+            fun timeAt(x: Float) = ((x - sidePx) / (widthPx - 2 * sidePx)).coerceIn(0f, 1f) * session.duration.value
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = bottomClear)
+                    .height(32.dp)
+                    // held sideways, the strip reaches the edges the system's back swipe comes from
+                    .systemGestureExclusion()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            held = true
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                            } while (event.changes.any { it.pressed })
+                            held = false
+                        }
+                    }
+                    .pointerInput(widthPx) {
+                        detectTapGestures(onTap = { offset -> session.seekTo(timeAt(offset.x)) })
+                    }
+                    .pointerInput(widthPx) {
+                        var start = 0.0
+                        detectHorizontalDragGestures(
+                            onDragStart = { offset ->
+                                start = session.position.value
+                                scrubSpeed = 1.0
+                                scrubTarget = timeAt(offset.x)
+                                scrubOffset = scrubTarget!! - start
+                            },
+                            onHorizontalDrag = { change, _ ->
+                                change.consume()
+                                scrubTarget = timeAt(change.position.x)
+                                scrubOffset = scrubTarget!! - start
+                            },
+                            onDragEnd = {
+                                scrubTarget?.let(session::seekTo)
+                                scrubTarget = null
+                            },
+                            onDragCancel = { scrubTarget = null },
+                        )
+                    },
+                contentAlignment = Alignment.BottomStart,
+            ) {
+                Box(Modifier.padding(horizontal = SEEK_SIDE).fillMaxWidth().height(barHeight).background(Color.White.copy(alpha = 0.28f), CircleShape)) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(MaterialTheme.colorScheme.primary, CircleShape))
+                }
+            }
+        }
+
         // fades in and out with the panel; the last overlay is kept for the fade out
         val lastOverlay = remember { mutableStateOf(overlay) }
         SideEffect { if (overlay != null) lastOverlay.value = overlay }
@@ -1168,71 +1235,6 @@ private fun VideoArea(
         }
         if (showOptions) PlayerOptions(session, onDismiss = { showOptions = false })
 
-        // seek bar: a thin rounded line along the bottom, as on desktop, hidden while playing. While
-        // paused it can be tapped or dragged (via an invisible touch strip above it); it fattens while held. Held
-        // sideways, line and strip sit above the system's swipes at the screen's edge, since a drag
-        // that starts in there and drifts upwards is taken for going home ("swipe up again").
-        AnimatedVisibility(
-            visible = !loading && (paused || scrubTarget != null),
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomStart),
-        ) {
-            val shown = scrubTarget ?: position
-            val fraction = if (duration > 0) (shown / duration).toFloat().coerceIn(0f, 1f) else 0f
-            var held by remember { mutableStateOf(false) }
-            val barHeight by animateDpAsState(if (held) 6.dp else 3.dp, label = "seekBarHeight")
-            // the line is held in from the sides so a finger can reach either end; a touch past an end is that end
-            val sidePx = with(LocalDensity.current) { SEEK_SIDE.toPx() }
-            fun timeAt(x: Float) = ((x - sidePx) / (widthPx - 2 * sidePx)).coerceIn(0f, 1f) * session.duration.value
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = bottomClear)
-                    .height(32.dp)
-                    // held sideways, the strip reaches the edges the system's back swipe comes from
-                    .systemGestureExclusion()
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                            held = true
-                            do {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                            } while (event.changes.any { it.pressed })
-                            held = false
-                        }
-                    }
-                    .pointerInput(widthPx) {
-                        detectTapGestures(onTap = { offset -> session.seekTo(timeAt(offset.x)) })
-                    }
-                    .pointerInput(widthPx) {
-                        var start = 0.0
-                        detectHorizontalDragGestures(
-                            onDragStart = { offset ->
-                                start = session.position.value
-                                scrubSpeed = 1.0
-                                scrubTarget = timeAt(offset.x)
-                                scrubOffset = scrubTarget!! - start
-                            },
-                            onHorizontalDrag = { change, _ ->
-                                change.consume()
-                                scrubTarget = timeAt(change.position.x)
-                                scrubOffset = scrubTarget!! - start
-                            },
-                            onDragEnd = {
-                                scrubTarget?.let(session::seekTo)
-                                scrubTarget = null
-                            },
-                            onDragCancel = { scrubTarget = null },
-                        )
-                    },
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                Box(Modifier.padding(horizontal = SEEK_SIDE).fillMaxWidth().height(barHeight).background(Color.White.copy(alpha = 0.28f), CircleShape)) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(MaterialTheme.colorScheme.primary, CircleShape))
-                }
-            }
-        }
     }
 }
 
@@ -1263,8 +1265,8 @@ private fun Modifier.videoPill() =
  * selection dragged across) opens its [lookup] above the line, in the room up to the buttons along
  * the top, and holding the line (or the video) shows it in the peek language while [peeking]. A tap
  * beside the words is a tap on the video. It shows while it's spoken, while paused, and while held
- * or looked up. Playing, it sits low, just above the system's swipes ([bottomClear]); paused, it
- * rises clear of the time and the seek line's touch strip.
+ * or looked up. It keeps one height, paused or not: level with the time, above the seek line
+ * (which reaches [bottomClear] up), so the controls coming and going don't move it.
  */
 @Composable
 private fun BoxScope.LineOverVideo(
@@ -1294,13 +1296,9 @@ private fun BoxScope.LineOverVideo(
     val shown = cue != null && cue.text.isNotEmpty() && (lineActive || paused || peeking || lookup != null)
     // a hold on the line can't be let go of once the line is gone
     LaunchedEffect(shown) { if (!shown) onHold(false) }
-    val bottom by animateDpAsState(
-        if (paused) 44.dp + bottomClear else maxOf(16.dp, bottomClear),
-        label = "line bottom",
-    )
 
     Column(
-        Modifier.matchParentSize().padding(start = 20.dp, top = 56.dp, end = 20.dp, bottom = bottom),
+        Modifier.matchParentSize().padding(start = 20.dp, top = 56.dp, end = 20.dp, bottom = 16.dp + bottomClear),
         verticalArrangement = Arrangement.Bottom,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
