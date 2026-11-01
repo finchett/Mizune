@@ -233,7 +233,7 @@ jobs:
   # libmpv for the Mac without GPL code: FFmpeg and mpv built here, then bundled as the Mac app
   # bundles it, and checked to play. scripts/release.sh takes the bundle from this job.
   macos-libmpv:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

@@ -1,6 +1,5 @@
 package app.mizune.desktop
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.mizune.ui.ReleaseNotesText
@@ -50,7 +48,7 @@ fun AboutPane(app: DesktopApp, onRestartToUpdate: () -> Unit) {
 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         // the icon carries its own margin, so 104 dp draws an 84 dp tile
-        Image(painterResource("icon.png"), contentDescription = null, modifier = Modifier.size(104.dp))
+        AppIcon(104.dp)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Mizune", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Text(

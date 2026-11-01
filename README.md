@@ -57,7 +57,7 @@ Anki.
 
 Download from the [latest release](https://github.com/finchett/Mizune/releases/latest).
 
-- **macOS** (Apple Silicon, macOS 12 or newer): open the `.dmg` and drag Mizune to
+- **macOS** (Apple Silicon, macOS 15 or newer): open the `.dmg` and drag Mizune to
   Applications. It isn't notarised yet, so the first time, right-click it and choose **Open**,
   or run `xattr -dr com.apple.quarantine "/Applications/Mizune.app"`.
 - **Windows** (x64, Windows 10 or newer): run the `.msi`. It installs for your user only, so it
@@ -100,6 +100,7 @@ exported as a file to keep or share, or imported from one.
 | s | hide or show the panel; when it's hidden, the line goes over the video |
 | z, or ⌘ + scroll | fill the area, or fit the whole picture |
 | f, F11, or double-click | full screen |
+| drag the video | move the window |
 | ⌘ (Ctrl) + 1–6 | Anime4K modes A, B, C, A+A, B+B, C+A |
 | ⌘ (Ctrl) + 0 | Anime4K off |
 | Esc | close a lookup, leave full screen, then back to the library |

@@ -234,6 +234,10 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         if (value.isDefault) prefs.remove("key_map") else prefs.put("key_map", value.toJson())
     }
 
+    /** Where the window was last left (WindowPlace); none before it's first opened. */
+    fun windowPlace(): WindowPlace? = prefs.get("window_place", null)?.let(WindowPlace::decode)
+    fun saveWindowPlace(place: WindowPlace) = prefs.put("window_place", place.encode())
+
     fun isBundledInstalled(name: String) = prefs.getBoolean("bundled:$name", false)
     fun setBundledInstalled(name: String) = prefs.putBoolean("bundled:$name", true)
 
@@ -247,6 +251,21 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         if (duration > 0) videos.putDouble("$k.dur", duration)
         // finished episodes restart from the beginning
         if (duration > 0 && seconds > duration - 30) videos.remove("$k.pos") else videos.putDouble("$k.pos", seconds)
+        markPlayed(path)
+    }
+
+    /**
+     * The videos played last, newest first, for the library's resume bar. More than one is kept,
+     * since the last may have been finished or moved by the time it looks.
+     */
+    var recent by mutableStateOf(prefs.get("recent", "").split('\n').filter { it.isNotEmpty() })
+        private set
+
+    private fun markPlayed(path: String) {
+        var kept = (listOf(path) + recent.filter { it != path }).take(12)
+        while (kept.isNotEmpty() && kept.joinToString("\n").length > Preferences.MAX_VALUE_LENGTH) kept = kept.dropLast(1)
+        recent = kept
+        prefs.put("recent", kept.joinToString("\n"))
     }
 
     fun progress(path: String): Float {

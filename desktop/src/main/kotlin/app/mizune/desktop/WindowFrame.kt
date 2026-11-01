@@ -32,7 +32,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
@@ -59,22 +61,22 @@ class WindowFrame(val window: Window, val state: WindowState) {
     fun minimize() { state.isMinimized = true }
 
     fun toggleMaximized() {
-        if (maximized) {
-            state.placement = WindowPlacement.Floating
-        } else {
-            // a frameless window maximises over the taskbar unless told the screen's work area,
-            // which Windows wants relative to the screen it's on
-            if (isWindows) {
-                val config = window.graphicsConfiguration
-                val screen = config.bounds
-                val insets = Toolkit.getDefaultToolkit().getScreenInsets(config)
-                (window as? java.awt.Frame)?.maximizedBounds = Rectangle(
-                    insets.left, insets.top,
-                    screen.width - insets.left - insets.right, screen.height - insets.top - insets.bottom,
-                )
-            }
-            state.placement = WindowPlacement.Maximized
+        if (maximized) state.placement = WindowPlacement.Floating else maximize()
+    }
+
+    fun maximize() {
+        // a frameless window maximises over the taskbar unless told the screen's work area,
+        // which Windows wants relative to the screen it's on
+        if (isWindows) {
+            val config = window.graphicsConfiguration
+            val screen = config.bounds
+            val insets = Toolkit.getDefaultToolkit().getScreenInsets(config)
+            (window as? java.awt.Frame)?.maximizedBounds = Rectangle(
+                insets.left, insets.top,
+                screen.width - insets.left - insets.right, screen.height - insets.top - insets.bottom,
+            )
         }
+        state.placement = WindowPlacement.Maximized
     }
 }
 
@@ -89,6 +91,9 @@ val HeaderEnd: Dp = when {
     isWindows -> WINDOWS_BUTTON_WIDTH * 3
     else -> 100.dp
 }
+
+/** The window, for moving from inside it on every platform; null in full screen. */
+val LocalMovableWindow = staticCompositionLocalOf<WindowFrame?> { null }
 
 /**
  * Lets a header move the window where nothing in it takes the press, and maximise it on a
@@ -106,26 +111,46 @@ fun Modifier.movesWindow(): Modifier = composed {
                 lastUp.value = 0
                 return@awaitEachGesture
             }
-            val startMouse = MouseInfo.getPointerInfo()?.location ?: return@awaitEachGesture
-            val startWindow = frame.window.location
-            var moved = false
-            while (true) {
-                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                if (!change.pressed) {
-                    if (!moved) lastUp.value = change.uptimeMillis
-                    break
-                }
-                val mouse = MouseInfo.getPointerInfo()?.location ?: break
-                val dx = mouse.x - startMouse.x
-                val dy = mouse.y - startMouse.y
-                if (!moved && dx * dx + dy * dy > 9 && !frame.maximized) moved = true
-                if (moved) {
-                    frame.window.setLocation(startWindow.x + dx, startWindow.y + dy)
-                    change.consume()
-                }
+            if (!followToMove(frame, down)) {
+                currentEvent.changes.firstOrNull { it.id == down.id && !it.pressed }?.let { lastUp.value = it.uptimeMillis }
             }
         }
     }
+}
+
+/**
+ * Lets a drag on the content move the window, on every platform, where nothing over it takes the
+ * press. A click that doesn't move is left alone, for whatever else the content does with it.
+ */
+fun Modifier.dragMovesWindow(): Modifier = composed {
+    val frame = LocalMovableWindow.current ?: return@composed this
+    pointerInput(frame) {
+        awaitEachGesture { followToMove(frame, awaitFirstDown(requireUnconsumed = true)) }
+    }
+}
+
+/**
+ * Follows [down] until it comes up, moving the window with the pointer once it has gone a few
+ * pixels; whether it did. A press something else starts moving with first is left to that.
+ */
+private suspend fun AwaitPointerEventScope.followToMove(frame: WindowFrame, down: PointerInputChange): Boolean {
+    val startMouse = MouseInfo.getPointerInfo()?.location ?: return false
+    val startWindow = frame.window.location
+    var moved = false
+    while (true) {
+        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+        if (!change.pressed) break
+        if (!moved && change.isConsumed) break
+        val mouse = MouseInfo.getPointerInfo()?.location ?: break
+        val dx = mouse.x - startMouse.x
+        val dy = mouse.y - startMouse.y
+        if (!moved && dx * dx + dy * dy > 9 && !frame.maximized) moved = true
+        if (moved) {
+            frame.window.setLocation(startWindow.x + dx, startWindow.y + dy)
+            change.consume()
+        }
+    }
+    return moved
 }
 
 private class LongRef(var value: Long)
