@@ -716,7 +716,8 @@ private fun Controls(
         }
         LineButtons(app, session, color = muted, hoverColor = white)
         LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
-        TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
+        // on macOS the panel's header has the same cog, so it's only here while the panel is away
+        if (ownsFrame || app.settings.panelHidden) TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
         ShaderMenu(app, session, onMenu, accent)
         PanelButton(app, color = muted, hoverColor = white)
         if (!isMac) FullscreenButton(keys, app.settings.keyMap.label(PlayerAction.FullScreen), color = muted, hoverColor = white)
@@ -914,8 +915,8 @@ private fun PanelHeader(app: DesktopApp, session: PlayerSession, note: String?, 
                 modifier = Modifier.padding(horizontal = 6.dp),
             )
         }
-        // the play bar has the same menu; where the window's buttons end the header, it'd sit
-        // oddly beside them, so only macOS keeps it here
+        // the play bar has the same menu, and leaves it to this one while the panel is open; where
+        // the window's buttons end the header, it'd sit oddly beside them, so only macOS has it here
         if (!ownsFrame) TrackMenu(app.settings, session)
     }
 }
