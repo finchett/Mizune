@@ -431,7 +431,8 @@ private fun Browse(
                         LibraryBody(
                             app, s.folder,
                             onOpenFolder = { navigate(Screen.Library(it)) },
-                            onOpenVideo = { onOpenVideo(it, s.folder ?: it.parentFile) },
+                            // back from the player comes out in the video's folder, Continue watching's too
+                            onOpenVideo = { onOpenVideo(it, it.parentFile) },
                         )
                     }
                 },
