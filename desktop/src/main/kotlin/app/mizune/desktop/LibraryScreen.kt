@@ -13,17 +13,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.compositeOver
-import app.mizune.ui.PlayIcon
-import kotlin.math.roundToInt
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -68,6 +59,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mizune.library.NaturalOrder
+import app.mizune.library.RecentVideos
+import app.mizune.ui.ResumeBar
 import app.mizune.library.Titles
 import app.mizune.library.isVideoName
 import app.mizune.ui.Cog
@@ -110,30 +103,17 @@ private fun lastStopped(app: DesktopApp, root: File): Resume? {
         .filter { it.isFile && it.path.startsWith(root.path + File.separator) }
         .map { video ->
             val parent = video.parentFile
-            val siblings = videosIn(parent)
-            val index = siblings.indexOfFirst { it.name == video.name }
-            val title = if (settings.tidyNames && index >= 0) Titles.episodes(siblings.map { it.name })[index] else video.nameWithoutExtension
+            val title = RecentVideos.title(video.name, videosIn(parent).map { it.name }, settings.tidyNames)
             val path = video.absolutePath
-            // a film alone in its folder is named once, not twice
-            val show = settings.title(parent.name).takeIf { parent != root && it != title }
             Resume(
                 video = video,
-                show = show,
+                show = RecentVideos.show(settings.title(parent.name).takeIf { parent != root }, title),
                 title = title,
-                left = timeLeft(settings.duration(path) - settings.position(path)),
+                left = RecentVideos.timeLeft(settings.duration(path) - settings.position(path)),
                 progress = settings.progress(path),
             )
         }
         .firstOrNull()
-}
-
-private fun timeLeft(seconds: Double): String {
-    val minutes = (seconds / 60).roundToInt()
-    return when {
-        minutes < 1 -> "Under a minute left"
-        minutes < 60 -> "$minutes min left"
-        else -> "${minutes / 60} h ${minutes % 60} min left"
-    }
 }
 
 /** The first video in [folder]'s subfolders, for a show split into seasons, looking at most [depth] levels down. */
@@ -348,7 +328,11 @@ private fun FolderContents(
         ) {
             barItem?.let { item ->
                 ResumeBar(
-                    app, item,
+                    frame = rememberThumbnail(app, item.video),
+                    show = item.show,
+                    title = item.title,
+                    left = item.left,
+                    progress = item.progress,
                     onShow = { onShowVideo(item.video) },
                     onPlay = { onOpenVideo(item.video) },
                 )
@@ -420,62 +404,6 @@ private fun Card(
             if (subtitle != null) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
             }
-        }
-    }
-}
-
-/**
- * The video stopped partway most recently, floating over the foot of the library. The bar goes to
- * it in its folder; its play button plays it from where it stopped.
- */
-@Composable
-private fun ResumeBar(app: DesktopApp, item: Resume, onShow: () -> Unit, onPlay: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val playInteraction = remember { MutableInteractionSource() }
-    val playHovered by playInteraction.collectIsHoveredAsState()
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        Modifier.widthIn(max = 520.dp)
-            .shadow(14.dp, shape)
-            .clip(shape)
-            .background(if (hovered && !playHovered) scheme.primary.copy(alpha = 0.08f).compositeOver(scheme.surfaceVariant) else scheme.surfaceVariant)
-            .border(1.dp, scheme.outlineVariant, shape)
-            .hoverable(interaction).clickable(interaction, indication = null, onClick = onShow)
-            .pointerHoverIcon(PointerIcon.Hand)
-            .padding(start = 10.dp, top = 10.dp, bottom = 10.dp, end = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Box(Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(scheme.background)) {
-            rememberThumbnail(app, item.video)?.let {
-                Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            }
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x59000000))) {
-                Box(Modifier.fillMaxWidth(item.progress).fillMaxHeight().background(scheme.primary))
-            }
-        }
-        Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                item.show?.let { "$it · ${item.title}" } ?: item.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (hovered && !playHovered) scheme.primary else scheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(item.left, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
-        }
-        Box(
-            Modifier.size(36.dp)
-                .background(if (playHovered) scheme.primary.copy(alpha = 0.85f) else scheme.primary, CircleShape)
-                .hoverable(playInteraction).clickable(playInteraction, indication = null, onClick = onPlay)
-                .pointerHoverIcon(PointerIcon.Hand)
-                .semantics { contentDescription = "Play" },
-            contentAlignment = Alignment.Center,
-        ) {
-            PlayIcon(scheme.onPrimary, diameter = 14.dp)
         }
     }
 }

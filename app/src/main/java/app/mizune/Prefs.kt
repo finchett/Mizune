@@ -6,6 +6,7 @@ import app.mizune.anki.AnkiException
 import app.mizune.anki.CardFormat
 import app.mizune.anki.CardFormats
 import app.mizune.anki.CardTarget
+import app.mizune.library.RecentVideos
 import org.json.JSONObject
 
 class Prefs(context: Context) {
@@ -212,6 +213,18 @@ class Prefs(context: Context) {
             // finished episodes restart from the beginning
             if (duration > 0 && seconds > duration - 30) remove(uri) else putFloat(uri, seconds.toFloat())
         }
+        markPlayed(uri)
+    }
+
+    /** The videos played last, newest first, for the library's resume bar (RecentVideos). */
+    val recent: List<String>
+        get() = prefs.getString("recent", "").orEmpty().split('\n').filter { it.isNotEmpty() }
+
+    private fun markPlayed(uri: String) {
+        val recent = recent
+        // a position is saved at every pause; the list only changes when the video does
+        if (recent.firstOrNull() == uri) return
+        prefs.edit { putString("recent", RecentVideos.played(uri, recent).joinToString("\n")) }
     }
 
     fun progress(uri: String, duration: Double): Float =

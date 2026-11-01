@@ -8,6 +8,7 @@ import app.mizune.anki.AnkiException
 import app.mizune.anki.CardFormat
 import app.mizune.anki.CardFormats
 import app.mizune.anki.CardTarget
+import app.mizune.library.RecentVideos
 import app.mizune.library.Titles
 import app.mizune.library.isVideoName
 import app.mizune.ui.AppTheme
@@ -262,15 +263,12 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
         markPlayed(path)
     }
 
-    /**
-     * The videos played last, newest first, for the library's resume bar. More than one is kept,
-     * since the last may have been finished or moved by the time it looks.
-     */
+    /** The videos played last, newest first, for the library's resume bar (RecentVideos). */
     var recent by mutableStateOf(prefs.get("recent", "").split('\n').filter { it.isNotEmpty() })
         private set
 
     private fun markPlayed(path: String) {
-        var kept = (listOf(path) + recent.filter { it != path }).take(12)
+        var kept = RecentVideos.played(path, recent)
         while (kept.isNotEmpty() && kept.joinToString("\n").length > Preferences.MAX_VALUE_LENGTH) kept = kept.dropLast(1)
         recent = kept
         prefs.put("recent", kept.joinToString("\n"))
