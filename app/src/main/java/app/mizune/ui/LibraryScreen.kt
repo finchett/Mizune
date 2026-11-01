@@ -101,10 +101,11 @@ private sealed interface Entry {
 
 /**
  * A video stopped partway, to pick up again: its show (null for one at the top), name, and how far
- * in. Its folder holds [siblings], to play on from it.
+ * in. [folders] lead from the library down to its folder, which holds [siblings], to play on from it.
  */
 private data class Resume(
     val video: LibraryFile,
+    val folders: List<LibraryFile>,
     val siblings: List<LibraryFile>,
     val show: String?,
     val title: String,
@@ -400,7 +401,11 @@ private fun FolderGrid(
                 VideoCard(
                     app, item.video, item.show ?: item.title, number = null,
                     detail = item.show?.let { "${item.title} · ${item.left}" } ?: item.left, leftOff = true,
-                ) { onOpenVideo(item.video, item.siblings) }
+                ) {
+                    // back from the player comes out in the video's folder, as it would from there
+                    app.prefs.libraryPath = item.folders.drop(1).joinToString("/") { it.name }
+                    onOpenVideo(item.video, item.siblings)
+                }
             }
         }
         // labelled groups only when there are two kinds to tell apart, Continue watching among them
@@ -682,6 +687,7 @@ private fun resumeAt(context: Context, app: App, root: LibraryFile, uri: Uri): R
     val duration = app.prefs.duration(key)
     return Resume(
         video = video,
+        folders = folders,
         siblings = siblings,
         show = RecentVideos.show(if (folders.size > 1) app.title(folders.last().name) else null, title),
         title = title,
