@@ -66,11 +66,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -113,6 +112,8 @@ import app.mizune.dictionary.LookupResult
 import app.mizune.dictionary.TermEntry
 import app.mizune.library.formatTime
 import app.mizune.subs.SubtitleTrack
+import app.mizune.subs.detail
+import app.mizune.subs.shortName
 import app.mizune.ui.Cog
 import app.mizune.ui.FullscreenIcon
 import app.mizune.ui.PanelIcon
@@ -132,6 +133,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Cursor
 import java.io.File
+import app.mizune.ui.MenuGroup
+import app.mizune.ui.MenuNote
+import app.mizune.ui.MenuChoice
+import app.mizune.ui.MenuDisclosure
+import app.mizune.ui.MenuSegments
 
 /** Keyboard actions the window forwards to the player. */
 class PlayerKeys {
@@ -570,7 +576,7 @@ private fun VideoArea(
             exit = fadeOut(tween(150)),
             modifier = Modifier.align(Alignment.Center),
         ) {
-            next?.let { NextEpisode(app.settings.title(it.name), app.settings.accentOnVideo(), onPlayNext) }
+            next?.let { NextEpisode(app.settings.title(it.name), accentOnVideo(), onPlayNext) }
         }
         AnimatedVisibility(
             visible,
@@ -609,11 +615,9 @@ private fun VideoArea(
     }
 }
 
-/**
- * The theme's accent for things over the video, which is dark in every theme: the accent of the
- * theme's dark side, since a light theme's own (dark green in Jade) would barely show there.
- */
-private fun Settings.accentOnVideo(): Color = themeFamily.dark?.scheme?.primary ?: Color.White
+/** The theme's own accent for things over the video, lifted a little towards white so it shows on the dark of a video. */
+@Composable
+private fun accentOnVideo(): Color = lerp(MaterialTheme.colorScheme.primary, Color.White, 0.15f)
 
 /** Offered over the last frame: the next video in the folder, a click (or Return) away. */
 @Composable
@@ -678,7 +682,7 @@ private fun Controls(
     var scrubbing by remember { mutableStateOf<Double?>(null) }
     val white = Color.White
     val muted = white.copy(alpha = 0.85f)
-    val accent = app.settings.accentOnVideo()
+    val accent = accentOnVideo()
     Row(
         Modifier.fillMaxWidth().height(BAR_HEIGHT)
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
@@ -693,11 +697,12 @@ private fun Controls(
             style = MaterialTheme.typography.titleMedium,
             hoverColor = white,
         )
-        Text(
-            "${formatTime(scrubbing ?: position)} / ${formatTime(duration)}",
-            style = MaterialTheme.typography.labelMedium,
-            color = muted,
-        )
+        // digits of one width, and room for the longest the time gets, so the bar beside it never moves
+        val timeStyle = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum")
+        Box {
+            Text("${formatTime(duration).replace(Regex("\\d"), "0")} / ${formatTime(duration)}", style = timeStyle, color = Color.Transparent)
+            Text("${formatTime(scrubbing ?: position)} / ${formatTime(duration)}", style = timeStyle, color = muted)
+        }
         Box(Modifier.weight(1f).padding(horizontal = 6.dp)) {
             Scrubber(
                 position = scrubbing ?: position,
@@ -711,11 +716,14 @@ private fun Controls(
                     scrubbing = null
                     onScrubbing(false)
                 },
+                color = accent,
             )
         }
         LineButtons(app, session, color = muted, hoverColor = white)
-        LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
-        TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
+        // the panel's footer has the same one, so it's only here while the panel is away
+        if (app.settings.panelHidden) LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
+        // on macOS the panel's header has the same cog, so it's only here while the panel is away
+        if (ownsFrame || app.settings.panelHidden) TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
         ShaderMenu(app, session, onMenu, accent)
         PanelButton(app, color = muted, hoverColor = white)
         if (!isMac) FullscreenButton(keys, app.settings.keyMap.label(PlayerAction.FullScreen), color = muted, hoverColor = white)
@@ -748,25 +756,12 @@ private fun ShaderMenu(app: DesktopApp, session: PlayerSession, onMenu: (Boolean
         ) {
             ShaderIcon(if (settings.anime4kPreset != Anime4K.Preset.OFF) accent else Color.White)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { show(false) }) {
+        PlayerMenu(expanded = open, onDismiss = { show(false) }, width = 260.dp) {
             @Composable
-            /** [note], if any, follows the label muted: what the item stands for, not its name. */
-            fun item(label: String, selected: Boolean, note: String? = null, onClick: () -> Unit) = DropdownMenuItem(
-                text = {
-                    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-                    Text(
-                        buildAnnotatedString {
-                            append(label)
-                            if (note != null) withStyle(SpanStyle(color = muted)) { append(" · $note") }
-                        },
-                        maxLines = 1,
-                    )
-                },
-                leadingIcon = { Text(if (selected) "✓" else "", Modifier.width(12.dp)) },
-                onClick = { onClick(); show(false) },
-            )
-            MenuHeading("Anime4K")
-            if (!session.player.runsShaders) MenuHeading("Needs OpenGL, which isn't available here")
+            fun item(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) =
+                MenuChoice(title, selected, detail, onClick = onClick)
+            MenuGroup("Anime4K", first = true)
+            if (!session.player.runsShaders) MenuNote("Needs OpenGL, which isn't available here")
             Anime4K.Preset.entries.forEach { preset ->
                 // Auto says which of Fast and Best it went with
                 val note = if (preset == Anime4K.Preset.AUTO) {
@@ -774,16 +769,10 @@ private fun ShaderMenu(app: DesktopApp, session: PlayerSession, onMenu: (Boolean
                 } else null
                 item(preset.label, settings.anime4kPreset == preset, note) { settings.updateAnime4kPreset(preset) }
             }
-            HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            DropdownMenuItem(
-                text = { Text("Advanced", maxLines = 1) },
-                leadingIcon = { Text(if (advanced || settings.anime4kMode != null) "▾" else "▸", Modifier.width(12.dp)) },
-                // opens in place, so the menu stays up
-                onClick = { advanced = !advanced },
-            )
+            MenuDisclosure("Advanced", open = advanced || settings.anime4kMode != null) { advanced = !advanced }
             if (advanced || settings.anime4kMode != null) {
-                MenuHeading("Mode")
-                item("By video (${Anime4K.modeFor(videoHeight).label})", settings.anime4kMode == null) { settings.updateAnime4kMode(null) }
+                MenuGroup("Mode")
+                item("By video", settings.anime4kMode == null, Anime4K.modeFor(videoHeight).label) { settings.updateAnime4kMode(null) }
                 Anime4K.Mode.entries.forEach { mode ->
                     item(mode.label, settings.anime4kMode == mode) { settings.updateAnime4kMode(mode) }
                 }
@@ -913,8 +902,8 @@ private fun PanelHeader(app: DesktopApp, session: PlayerSession, note: String?, 
                 modifier = Modifier.padding(horizontal = 6.dp),
             )
         }
-        // the play bar has the same menu; where the window's buttons end the header, it'd sit
-        // oddly beside them, so only macOS keeps it here
+        // the play bar has the same menu, and leaves it to this one while the panel is open; where
+        // the window's buttons end the header, it'd sit oddly beside them, so only macOS has it here
         if (!ownsFrame) TrackMenu(app.settings, session)
     }
 }
@@ -948,48 +937,29 @@ private fun TrackMenu(
             color = color,
             hoverColor = hoverColor,
         ) { Cog(it) }
-        DropdownMenu(expanded = open, onDismissRequest = { show(false) }) {
+        // choosing keeps it up, so the change shows behind it and another can follow
+        PlayerMenu(expanded = open, onDismiss = { show(false) }) {
             @Composable
-            fun item(label: String, selected: Boolean, onClick: () -> Unit) = DropdownMenuItem(
-                text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                leadingIcon = { Text(if (selected) "✓" else "", Modifier.width(12.dp)) },
-                onClick = { onClick(); show(false) },
-            )
-            @Composable
-            fun divider() = HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            MenuHeading("Picture · Z switches")
-            item("Fit the whole picture", !settings.videoFill) { settings.updateVideoFill(false) }
-            item("Fill the area, cropping the edges", settings.videoFill) { settings.updateVideoFill(true) }
-            if (audioTracks.isNotEmpty()) {
-                divider()
-                MenuHeading("Audio")
-                audioTracks.forEach { track -> item(track.label, track.id == audioTrack) { session.selectAudio(track) } }
+            fun item(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) =
+                MenuChoice(title, selected, detail, onClick = onClick)
+            MenuGroup("Picture", note = "Z", first = true)
+            MenuSegments(listOf("Whole picture", "Fill the area"), if (settings.videoFill) 1 else 0) {
+                settings.updateVideoFill(it == 1)
             }
-            if (tracks.isEmpty()) return@DropdownMenu
-            divider()
-            MenuHeading("Subtitles to study")
-            tracks.forEach { track -> item(trackLabel(track), track === primary) { session.selectPrimary(track) } }
-            divider()
-            MenuHeading("Translation (hold to peek)")
+            if (audioTracks.isNotEmpty()) {
+                MenuGroup("Audio")
+                audioTracks.forEach { track -> item(track.name, track.id == audioTrack, track.detail) { session.selectAudio(track) } }
+            }
+            if (tracks.isEmpty()) return@PlayerMenu
+            MenuGroup("Subtitles to study")
+            tracks.forEach { track -> item(track.shortName, track === primary, track.detail) { session.selectPrimary(track) } }
+            MenuGroup("Translation", note = "Hold to peek")
             item("None", secondary == null) { session.selectSecondary(null) }
             tracks.filter { it !== primary }.forEach { track ->
-                item(trackLabel(track), track === secondary) { session.selectSecondary(track) }
+                item(track.shortName, track === secondary, track.detail) { session.selectSecondary(track) }
             }
         }
     }
-}
-
-@Composable
-private fun MenuHeading(text: String) = Text(
-    text,
-    style = MaterialTheme.typography.labelMedium,
-    color = MaterialTheme.colorScheme.onSurfaceVariant,
-    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-)
-
-private fun trackLabel(track: SubtitleTrack): String {
-    val language = track.language?.let { " · $it" }.orEmpty()
-    return "${track.name}$language · ${track.cues.size} lines"
 }
 
 /** Shown on a held line when no peek language is set (a track can still be picked under ⚙). */

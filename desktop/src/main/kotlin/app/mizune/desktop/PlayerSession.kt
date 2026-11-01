@@ -1,6 +1,8 @@
 package app.mizune.desktop
 
 import app.mizune.desktop.mpv.MpvPlayer
+import app.mizune.library.RecentVideos
+import app.mizune.library.Sitting
 import app.mizune.media.AudioTrack
 import app.mizune.subs.SubtitleFiles
 import app.mizune.subs.SubtitleTrack
@@ -27,6 +29,7 @@ class PlayerSession(
 ) {
     private val path = video.absolutePath
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val sitting = Sitting()
 
     val position: StateFlow<Double> get() = player.position
     val duration: StateFlow<Double> get() = player.duration
@@ -238,6 +241,8 @@ class PlayerSession(
     }
 
     fun savePosition() {
+        // a quick look leaves the video as it was
+        if (RecentVideos.skimmed(sitting.seconds, player.duration.value)) return
         settings.savePosition(path, player.position.value, player.duration.value)
     }
 

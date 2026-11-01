@@ -7,12 +7,40 @@ data class AudioTrack(val id: Int, val language: String?, val title: String?, va
 
     /** "Japanese · Main · aac": the language by name where known, then whatever else the file says. */
     val label: String
+        get() = listOfNotNull(languageName, title, codec).distinct().joinToString(" · ").ifEmpty { "Track $id" }
+
+    /** What a list calls it: the language by name where known, else the file's title for it, else its number. */
+    val name: String
+        get() = languageName ?: title ?: "Track $id"
+
+    /**
+     * What else tells it apart, beside [name]: its title without the language it starts with
+     * ("Japanese: Stereo" gives "Stereo") and with its brackets made separators ("(AAC 2.0)
+     * [Studio]" gives "AAC 2.0 · Studio"), then its codec in capitals unless the title has it.
+     * Null when there's nothing.
+     */
+    val detail: String?
         get() {
-            val name = language?.let { tag -> SubtitleFiles.codeForTag(tag)?.let(SubtitleFiles::language)?.name ?: tag }
-            return listOfNotNull(name, title, codec).distinct().joinToString(" · ").ifEmpty { "Track $id" }
+            val rest = title?.let { title -> languageName?.let { withoutLead(title, it) } ?: title }?.takeUnless { it == name }
+            val pieces = rest?.let { PIECES.findAll(it).map { piece -> piece.value.trim(' ', '(', ')', '[', ']') } }
+                ?.filter { it.isNotEmpty() }?.toList().orEmpty()
+            val codec = codec?.uppercase()?.takeUnless { codec -> pieces.any { it.contains(codec, ignoreCase = true) } }
+            return (pieces + listOfNotNull(codec)).distinct().joinToString(" · ").ifEmpty { null }
         }
 
+    private val languageName: String?
+        get() = language?.let { tag -> SubtitleFiles.codeForTag(tag)?.let(SubtitleFiles::language)?.name ?: tag }
+
     companion object {
+        /** A title's bracketed parts, and the plain text between them. */
+        private val PIECES = Regex("""\([^)]*\)|\[[^\]]*]|[^()\[\]]+""")
+
+        /** [text] without [lead] at its start, and the punctuation after it; null if that's all there is. */
+        internal fun withoutLead(text: String, lead: String): String? {
+            if (!text.startsWith(lead, ignoreCase = true)) return text
+            return text.drop(lead.length).trimStart(' ', ':', '-', '–', '·', ',', '/').ifEmpty { null }
+        }
+
         /** The audio tracks in mpv's `track-list`, read through [property] (mpv's property as a string). */
         fun fromMpv(property: (String) -> String?): List<AudioTrack> {
             val count = property("track-list/count")?.toIntOrNull() ?: return emptyList()

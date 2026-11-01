@@ -48,9 +48,17 @@ class Prefs(context: Context) {
         get() = prefs.getString("peek_language", "en")?.takeIf { it.isNotEmpty() }
         set(value) = prefs.edit { putString("peek_language", value ?: "") }
 
-    var theme: String?
+    /** The single theme chosen before themes came in families, or "system"; read once to carry it over. */
+    val theme: String?
         get() = prefs.getString("theme", null)
-        set(value) = prefs.edit { putString("theme", value) }
+
+    var themeFamily: String?
+        get() = prefs.getString("theme_family", null)
+        set(value) = prefs.edit { putString("theme_family", value) }
+
+    var themeMode: String?
+        get() = prefs.getString("theme_mode", null)
+        set(value) = prefs.edit { putString("theme_mode", value) }
 
     /** Show the video and panel as rounded cards. */
     var roundedCorners: Boolean
@@ -71,6 +79,28 @@ class Prefs(context: Context) {
     var tidyNames: Boolean
         get() = prefs.getBoolean("tidy_names", true)
         set(value) = prefs.edit { putBoolean("tidy_names", value) }
+
+    /** Continue watching at the top of the library. */
+    var continueWatching: Boolean
+        get() = prefs.getBoolean("continue_watching", true)
+        set(value) = prefs.edit { putBoolean("continue_watching", value) }
+
+    /** How far through each video and folder the library shows: how many are watched, and, each on its own, ticks, videos' lines and folders' slices. */
+    var showProgress: Boolean
+        get() = prefs.getBoolean("show_progress", true)
+        set(value) = prefs.edit { putBoolean("show_progress", value) }
+
+    var progressChecks: Boolean
+        get() = prefs.getBoolean("progress_checks", true)
+        set(value) = prefs.edit { putBoolean("progress_checks", value) }
+
+    var videoProgress: Boolean
+        get() = prefs.getBoolean("video_progress", true)
+        set(value) = prefs.edit { putBoolean("video_progress", value) }
+
+    var folderProgress: Boolean
+        get() = prefs.getBoolean("folder_progress", false)
+        set(value) = prefs.edit { putBoolean("folder_progress", value) }
 
     /** New versions download by themselves; off, they wait to be asked for (AppUpdater). */
     var autoUpdate: Boolean
@@ -184,11 +214,11 @@ class Prefs(context: Context) {
         return CardTarget(format, deck, ankiTags.split(' ', '\u3000').filter { it.isNotBlank() })
     }
 
-    /** Position a video's library thumbnail was taken at, to know when to refresh it. */
-    fun thumbnailPosition(uri: String): Double = perVideo.getFloat("thumbpos:$uri", -1f).toDouble()
+    /** Position a library thumbnail, kept under [key] in the thumbnail store, was taken at, to know when to refresh it. */
+    fun thumbnailPosition(key: String): Double = perVideo.getFloat("thumbpos:$key", -1f).toDouble()
 
-    fun setThumbnailPosition(uri: String, seconds: Double) =
-        perVideo.edit { putFloat("thumbpos:$uri", seconds.toFloat()) }
+    fun setThumbnailPosition(key: String, seconds: Double) =
+        perVideo.edit { putFloat("thumbpos:$key", seconds.toFloat()) }
 
     /** Seconds to shift a video's subtitles (positive = subtitles appear later). */
     fun subtitleOffset(uri: String): Double = perVideo.getFloat("offset:$uri", 0f).toDouble()
@@ -210,15 +240,36 @@ class Prefs(context: Context) {
     fun savePosition(uri: String, seconds: Double, duration: Double) {
         if (duration > 0) perVideo.edit { putFloat("duration:$uri", duration.toFloat()) }
         positions.edit {
-            // finished episodes restart from the beginning
-            if (duration > 0 && seconds > duration - 30) remove(uri) else putFloat(uri, seconds.toFloat())
+            // finished episodes restart from the beginning, and count as watched from then on
+            if (RecentVideos.finished(seconds, duration)) remove(uri) else putFloat(uri, seconds.toFloat())
         }
+        if (RecentVideos.finished(seconds, duration)) perVideo.edit { putBoolean("watched:$uri", true) }
         markPlayed(uri)
     }
 
-    /** The videos played last, newest first, for the library's resume bar (RecentVideos). */
+    /** Whether [uri] has been watched to the end (or marked so), for its folder's count. */
+    fun watched(uri: String): Boolean = perVideo.getBoolean("watched:$uri", false)
+
+    /** Counts [uri] as watched, as if it had played to the end. */
+    fun markWatched(uri: String) {
+        positions.edit { remove(uri) }
+        perVideo.edit { putBoolean("watched:$uri", true) }
+        forgetRecent(uri)
+    }
+
+    /** The videos played last, newest first, for Continue watching at the top of the library (RecentVideos). */
     val recent: List<String>
         get() = prefs.getString("recent", "").orEmpty().split('\n').filter { it.isNotEmpty() }
+
+    /** Forgets where [uri] was left and that it was watched: it plays from the start and leaves Continue watching. */
+    fun clearProgress(uri: String) {
+        positions.edit { remove(uri) }
+        perVideo.edit { remove("watched:$uri") }
+        forgetRecent(uri)
+    }
+
+    /** Takes [uri] out of Continue watching. Where it was left is kept, so it still picks up from there. */
+    fun forgetRecent(uri: String) = prefs.edit { putString("recent", (recent - uri).joinToString("\n")) }
 
     private fun markPlayed(uri: String) {
         val recent = recent

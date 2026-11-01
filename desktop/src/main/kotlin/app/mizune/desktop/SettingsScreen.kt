@@ -96,6 +96,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import app.mizune.ui.SectionLabel
 
 /** The panes of the settings screen, in the order they appear in its sidebar. */
 enum class SettingsPane(val label: String) {
@@ -301,6 +302,42 @@ private fun GeneralPane(app: DesktopApp) {
                 "Hides release tags like [Group] and 1080p, and shows episodes as Episode 1",
                 settings.tidyNames, settings::updateTidyNames,
             )
+        }
+    }
+    Section("Watching") {
+        Card {
+            ToggleRow(
+                "Continue watching",
+                "Shows the videos you stopped partway at the top of the library",
+                settings.continueWatching, settings::updateContinueWatching,
+            )
+            RowDivider()
+            ToggleRow(
+                "Show progress",
+                "Shows what you've watched in the library",
+                settings.showProgress, settings::updateShowProgress,
+            )
+            // what it shows, set in from it, while it's on
+            if (settings.showProgress) {
+                NestedDivider()
+                NestedToggleRow(
+                    "Checkmarks",
+                    "On watched videos, and on folders once every video in them is watched",
+                    settings.progressChecks, settings::updateProgressChecks,
+                )
+                NestedDivider()
+                NestedToggleRow(
+                    "Video progress",
+                    "A line along the foot of a video's picture, as far as you've got",
+                    settings.videoProgress, settings::updateVideoProgress,
+                )
+                NestedDivider()
+                NestedToggleRow(
+                    "Folder progress",
+                    "A slice for each video along the foot of a folder's picture",
+                    settings.folderProgress, settings::updateFolderProgress,
+                )
+            }
         }
     }
     Section("Languages") {
@@ -1075,6 +1112,18 @@ private fun Card(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun RowDivider() = HorizontalDivider(color = MaterialTheme.colorScheme.rowLine)
+
+/** How far a setting's own options are set in from it. */
+private val NESTED_INSET = 22.dp
+
+/** A [ToggleRow] that's one of the setting above's own options, set in from it. */
+@Composable
+private fun NestedToggleRow(title: String, detail: String?, checked: Boolean, onChange: (Boolean) -> Unit) =
+    Box(Modifier.padding(start = NESTED_INSET)) { ToggleRow(title, detail, checked, onChange) }
+
+/** A divider above a nested row, starting where its text does. */
+@Composable
+private fun NestedDivider() = HorizontalDivider(Modifier.padding(start = NESTED_INSET + 14.dp), color = MaterialTheme.colorScheme.rowLine)
 
 /**
  * A row of one card: what the setting is, an explanation under it, and the control that changes

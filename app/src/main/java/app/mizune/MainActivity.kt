@@ -16,8 +16,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.isSystemInDarkTheme
-import app.mizune.ui.SystemDark
-import app.mizune.ui.SystemLight
 import app.mizune.ui.Motion
 import app.mizune.ui.PhoneTheme
 import androidx.compose.runtime.LaunchedEffect
@@ -50,8 +48,7 @@ class MainActivity : ComponentActivity() {
         val app = application as App
         if (savedInstanceState == null) handleViewIntent(intent)
         setContent {
-            val theme = app.appearance.theme
-                ?: if (isSystemInDarkTheme()) SystemDark else SystemLight
+            val theme = app.appearance.theme(isSystemInDarkTheme())
             PhoneTheme(theme) {
                 BackHandler(enabled = screen != Screen.Library) { screen = Screen.Library }
                 LaunchedEffect(pendingScreen) {
