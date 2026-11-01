@@ -555,8 +555,8 @@ private fun AppearancePane(app: DesktopApp) {
                 )
             }
             RowDivider()
-            // the modes stay folded away unless one has been picked
-            var advanced by remember { mutableStateOf(settings.anime4kMode != null) }
+            // the modes start folded away
+            var advanced by remember { mutableStateOf(false) }
             Box(Modifier.clickable { advanced = !advanced }.pointerHoverIcon(PointerIcon.Hand)) {
                 SettingRow("Advanced") {
                     Text(if (advanced) "▾" else "▸", color = MaterialTheme.colorScheme.onSurfaceVariant)

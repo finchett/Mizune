@@ -277,12 +277,14 @@ class PlayerScreenTest {
                 onNodeWithText("Advanced").performClick()
                 waitUntil(timeoutMillis = 5_000) { !shows("By video") }
                 assertEquals(Anime4K.Mode.B, app.settings.anime4kMode)
-                // and with one picked, they show when the menu opens again
+                // and they're folded again when the menu next opens, even with one picked
+                onNodeWithText("Advanced").performClick()
+                waitUntil(timeoutMillis = 5_000) { shows("By video") }
                 onNodeWithContentDescription("Shaders").performClick()
                 waitUntil(timeoutMillis = 5_000) { !shows("Advanced") }
                 onNodeWithContentDescription("Shaders").performClick()
                 waitUntil(timeoutMillis = 5_000) { shows("Advanced") }
-                assertTrue("modes show with one picked", shows("By video"))
+                assertFalse("modes start folded with one picked", shows("By video"))
 
                 // Off clears them
                 onNodeWithText("Off").performClick()
