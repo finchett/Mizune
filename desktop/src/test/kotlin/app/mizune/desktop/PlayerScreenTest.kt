@@ -280,7 +280,7 @@ class PlayerScreenTest {
         }
     }
 
-    /** The speaker mutes and unmutes; the slider sets the volume, unmuting, and the scroll wheel nudges it. */
+    /** The speaker mutes and unmutes; hovering it shows the slider, which sets the volume, unmuting, and the scroll wheel nudges it. */
     @Test
     fun volumeControl() {
         assumeTrue("set MIZUNE_TEST_VIDEO", videoSource?.isFile == true)
@@ -294,11 +294,17 @@ class PlayerScreenTest {
                         PlayerScreen(app, session, keys, onBack = {}, onOpenVideo = {})
                     }
                 }
-                waitUntil(timeoutMillis = 15_000) { session.player.videoHeight.value > 0 }
+                // past the loading cover, which starts it playing
+                waitUntil(timeoutMillis = 15_000) { session.player.videoHeight.value > 0 && !session.paused.value }
                 // paused, the controls stay up
                 session.pause()
-                waitUntil(timeoutMillis = 5_000) { onAllNodesWithContentDescription("Volume").fetchSemanticsNodes().isNotEmpty() }
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithContentDescription("Mute").fetchSemanticsNodes().isNotEmpty() }
                 waitUntil(timeoutMillis = 5_000) { volume() == 100 && mute() == "no" }
+                // the slider is tucked away until the speaker is hovered
+                assertTrue(onAllNodesWithContentDescription("Volume").fetchSemanticsNodes().isEmpty())
+                shot("7-volume-tucked")
+                onNodeWithContentDescription("Mute").performMouseInput { moveTo(center) }
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithContentDescription("Volume").fetchSemanticsNodes().isNotEmpty() }
 
                 onNodeWithContentDescription("Mute").performClick()
                 assertTrue(app.settings.muted)
