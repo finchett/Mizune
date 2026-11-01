@@ -202,12 +202,17 @@ fun IconAction(
 }
 
 /**
- * A header bar that stays put, a hairline, and the body below it. A screen with a sidebar passes
- * it as [leading]: it runs the full height, the traffic lights sit over its top, and the header
- * and its hairline start where it ends.
+ * A header bar that stays put, a hairline unless [hairline] is false, and the body below it. A
+ * screen with a sidebar passes it as [leading]: it runs the full height, the traffic lights sit
+ * over its top, and the header and its hairline start where it ends.
  */
 @Composable
-fun Chrome(header: @Composable () -> Unit, body: @Composable () -> Unit, leading: (@Composable () -> Unit)? = null) {
+fun Chrome(
+    header: @Composable () -> Unit,
+    body: @Composable () -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+    hairline: Boolean = true,
+) {
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         leading?.invoke()
         Column(Modifier.fillMaxSize()) {
@@ -215,7 +220,7 @@ fun Chrome(header: @Composable () -> Unit, body: @Composable () -> Unit, leading
                 Modifier.fillMaxWidth().height(HeaderHeight).movesWindow()
                     .padding(start = if (leading == null) HeaderStart else 32.dp, end = 12.dp + HeaderEnd),
             ) { header() }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            if (hairline) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Box(Modifier.fillMaxSize()) { body() }
         }
     }

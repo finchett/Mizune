@@ -410,7 +410,9 @@ private fun Browse(
                 },
             )
         } else {
+            // the library's header and its grid are one surface, the way a Mac window's toolbar is
             Chrome(
+                hairline = false,
                 header = {
                     LibraryHeader(
                         app, library.folder,
