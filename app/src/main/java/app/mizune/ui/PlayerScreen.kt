@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -354,6 +355,15 @@ fun PlayerScreen(
                 ShoulderTriggers.stop()
             }
         }
+    }
+
+    // the rotation lock holds the player sideways (either way up); the library still turns freely
+    val landscapeLock by session.landscapeLock.collectAsState()
+    DisposableEffect(context, landscapeLock) {
+        val activity = context as? Activity
+        activity?.requestedOrientation =
+            if (landscapeLock) ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER }
     }
 
     // hardware keys and triggers arrive as commands from outside the UI
@@ -1346,6 +1356,7 @@ private fun PlayerOptions(session: PlayerSession, onDismiss: () -> Unit) {
     val offset by session.offset.collectAsState()
     val fill by session.fill.collectAsState()
     val autoPause by session.autoPause.collectAsState()
+    val landscapeLock by session.landscapeLock.collectAsState()
 
     // one row per thing, labels down the left, so it fits a phone held either way round
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -1406,6 +1417,10 @@ private fun PlayerOptions(session: PlayerSession, onDismiss: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OptionChip("Fill the area", fill, Modifier.weight(1f)) { session.setFill(!fill) }
                         OptionChip("Stop at each line", autoPause, Modifier.weight(1f)) { session.setAutoPause(!autoPause) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OptionChip("Lock landscape", landscapeLock, Modifier.weight(1f)) { session.setLandscapeLock(!landscapeLock) }
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
