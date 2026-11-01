@@ -57,7 +57,7 @@ Anki.
 
 Download from the [latest release](https://github.com/finchett/Mizune/releases/latest).
 
-- **macOS** (Apple Silicon, macOS 15 or newer): open the `.dmg` and drag Mizune to
+- **macOS** (Apple Silicon, macOS 15.8.1 or newer): open the `.dmg` and drag Mizune to
   Applications. It isn't notarised yet, so the first time, right-click it and choose **Open**,
   or run `xattr -dr com.apple.quarantine "/Applications/Mizune.app"`.
 - **Windows** (x64, Windows 10 or newer): run the `.msi`. It installs for your user only, so it

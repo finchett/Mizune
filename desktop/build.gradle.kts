@@ -101,7 +101,7 @@ compose.desktop {
                 packageVersion = "1.0.0"
                 bundleID = "app.mizune.desktop"
                 appCategory = "public.app-category.education"
-                minimumSystemVersion = "15.0"
+                minimumSystemVersion = "15.8.1"
             }
             windows {
                 iconFile.set(project.file("icons/icon.ico"))
