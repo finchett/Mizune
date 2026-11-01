@@ -49,10 +49,12 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -80,6 +82,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.mizune.App
 import app.mizune.R
 import app.mizune.anki.AnkiDroid
@@ -107,53 +112,56 @@ fun Onboarding(app: App, onFinish: () -> Unit) {
     fun go(to: OnboardingStep) { step = to }
     BackHandler(enabled = step != OnboardingStep.Welcome) { go(OnboardingStep.entries[step.ordinal - 1]) }
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(
-            Modifier.fillMaxSize().safeDrawingPadding().padding(top = 12.dp, bottom = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            StepDots(step)
-            AnimatedContent(
-                targetState = step,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    val sign = if (forward) 1 else -1
-                    (fadeIn(tween(260, delayMillis = 60)) + slideInHorizontally(tween(340)) { sign * it / 8 }) togetherWith
-                        (fadeOut(tween(160)) + slideOutHorizontally(tween(340)) { -sign * it / 8 })
-                },
-                label = "onboarding",
-            ) { shown ->
-                Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
-                    Column(
-                        Modifier.widthIn(max = 560.dp).padding(horizontal = 24.dp, vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        when (shown) {
-                            OnboardingStep.Welcome -> WelcomeStep(onStart = { go(OnboardingStep.Look) })
-                            OnboardingStep.Look -> LookStep(app)
-                            OnboardingStep.Peek -> PeekStep(app)
-                            OnboardingStep.Videos -> VideosStep(app) { folderChosen = true }
-                            OnboardingStep.Anki -> AnkiStep(app) { ankiOn = it }
-                            OnboardingStep.Done -> DoneStep(app)
+    // a Surface, so text without a colour of its own takes the theme's
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.fillMaxSize().safeDrawingPadding().padding(top = 12.dp, bottom = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                StepDots(step)
+                AnimatedContent(
+                    targetState = step,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        val sign = if (forward) 1 else -1
+                        (fadeIn(tween(260, delayMillis = 60)) + slideInHorizontally(tween(340)) { sign * it / 8 }) togetherWith
+                            (fadeOut(tween(160)) + slideOutHorizontally(tween(340)) { -sign * it / 8 })
+                    },
+                    label = "onboarding",
+                ) { shown ->
+                    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
+                        Column(
+                            Modifier.widthIn(max = 560.dp).padding(horizontal = 24.dp, vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            when (shown) {
+                                OnboardingStep.Welcome -> WelcomeStep(onStart = { go(OnboardingStep.Look) })
+                                OnboardingStep.Look -> LookStep(app)
+                                OnboardingStep.Peek -> PeekStep(app)
+                                OnboardingStep.Videos -> VideosStep(app) { folderChosen = true }
+                                OnboardingStep.Anki -> AnkiStep(app) { ankiOn = it }
+                                OnboardingStep.Done -> DoneStep(app)
+                            }
                         }
                     }
                 }
+                if (step != OnboardingStep.Welcome) {
+                    Footer(
+                        onBack = { go(OnboardingStep.entries[step.ordinal - 1]) },
+                        next = when (step) {
+                            OnboardingStep.Videos -> if (folderChosen) "Continue" else "Skip for now"
+                            OnboardingStep.Anki -> if (ankiOn) "Continue" else "Maybe later"
+                            OnboardingStep.Done -> "Start watching"
+                            else -> "Continue"
+                        },
+                        onNext = { if (step == OnboardingStep.Done) onFinish() else go(OnboardingStep.entries[step.ordinal + 1]) },
+                    )
+                }
             }
-            if (step != OnboardingStep.Welcome) {
-                Footer(
-                    onBack = { go(OnboardingStep.entries[step.ordinal - 1]) },
-                    next = when (step) {
-                        OnboardingStep.Videos -> if (folderChosen) "Continue" else "Skip for now"
-                        OnboardingStep.Anki -> if (ankiOn) "Continue" else "Maybe later"
-                        OnboardingStep.Done -> "Start watching"
-                        else -> "Continue"
-                    },
-                    onNext = { if (step == OnboardingStep.Done) onFinish() else go(OnboardingStep.entries[step.ordinal + 1]) },
-                )
-            }
+            if (step == OnboardingStep.Done) Confetti(Modifier.fillMaxSize())
         }
-        if (step == OnboardingStep.Done) Confetti(Modifier.fillMaxSize())
     }
 }
 
@@ -301,6 +309,17 @@ private fun ColumnScope.AnkiStep(app: App, onEnabled: (Boolean) -> Unit) {
             }
         }
     }
+    // back from AnkiDroid (or anywhere else): look again, as its API may have been turned on meanwhile
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        var left = false
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) left = true
+            if (event == Lifecycle.Event.ON_RESUME && left) { left = false; attempt++ }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     val connected = collection?.getOrNull()
     // with cards on, what Settings › Anki would set up: the known note type, and a source for each of its fields
     LaunchedEffect(connected, enabled, noteType) {
@@ -354,7 +373,8 @@ private fun ColumnScope.AnkiStep(app: App, onEnabled: (Boolean) -> Unit) {
                         collection == null -> "Cards go straight into AnkiDroid on this phone."
                         connected == null && !installed -> "Cards go into AnkiDroid on this phone. Or set it up later in Settings › Anki."
                         connected == null && !AnkiDroid.permitted(context) -> "Allow Mizune to add cards to it."
-                        connected == null -> "Open AnkiDroid once so it makes its collection, then check again."
+                        // AnkiDroid answers other apps only with its API on, and only once it has a collection
+                        connected == null -> "In AnkiDroid, turn on Settings › Advanced › Enable AnkiDroid API. If it's new, opening it once sets it up."
                         !enabled -> "Turn cards on to start making them."
                         askNoteType && noteType == null -> "Cards are on. Pick a note type and the deck they go in."
                         deck == null -> "Cards are on. Pick the deck they go in."
@@ -372,6 +392,9 @@ private fun ColumnScope.AnkiStep(app: App, onEnabled: (Boolean) -> Unit) {
                     onEnabled(it)
                 })
                 installed && !AnkiDroid.permitted(context) -> OutlinedButton(onClick = { permission.launch(AnkiDroid.PERMISSION) }) { Text("Allow") }
+                installed -> OutlinedButton(onClick = {
+                    context.packageManager.getLaunchIntentForPackage(AnkiDroid.PACKAGE)?.let(context::startActivity)
+                }) { Text("Open AnkiDroid") }
                 else -> TextButton(onClick = { attempt++ }) { Text("Check again") }
             }
         }
