@@ -82,7 +82,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.mizune.anki.AnkiConnect
-import app.mizune.anki.CardFormat
 import app.mizune.anki.CardFormats
 import app.mizune.anki.CardSource
 import app.mizune.dictionary.DictionaryInfo
@@ -601,7 +600,7 @@ private fun AppearancePane(app: DesktopApp) {
 }
 
 /** What AnkiConnect reported: the collection's note types and decks. */
-private class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
+internal class AnkiCollection(val noteTypes: List<String>, val decks: List<String>)
 
 private fun presetDetail(preset: Anime4K.Preset): String = when (preset) {
     Anime4K.Preset.OFF -> "Sharpens and upscales anime on the GPU"
@@ -643,11 +642,7 @@ private fun AnkiPane(app: DesktopApp) {
         val names = withContext(Dispatchers.IO) {
             runCatching { AnkiConnect(settings.ankiUrl).fieldNames(noteType) }.getOrNull()
         } ?: return@LaunchedEffect
-        val saved = settings.cardFormat(noteType)
-        if (saved == null || saved.fields.keys != names.toSet()) {
-            val suggested = CardFormats.forNoteType(noteType, names).fields
-            settings.saveCardFormat(CardFormat(noteType, names.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }))
-        }
+        settings.fillCardFormat(noteType, names)
         fields = names
     }
 
@@ -1193,7 +1188,7 @@ private fun LanguageSelect(selected: String?, allowNone: Boolean, onSelect: (Str
 
 /** A control that looks like a select, with the menu of [options] under it. */
 @Composable
-private fun Select(text: String, options: List<String>, onSelect: (Int) -> Unit, width: Dp = 150.dp, muted: Boolean = false) {
+internal fun Select(text: String, options: List<String>, onSelect: (Int) -> Unit, width: Dp = 150.dp, muted: Boolean = false) {
     var open by remember { mutableStateOf(false) }
     Box {
         val scheme = MaterialTheme.colorScheme
