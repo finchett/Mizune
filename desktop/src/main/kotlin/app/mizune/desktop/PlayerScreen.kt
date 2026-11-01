@@ -711,6 +711,7 @@ private fun Controls(
                     scrubbing = null
                     onScrubbing(false)
                 },
+                color = accent,
             )
         }
         LineButtons(app, session, color = muted, hoverColor = white)
