@@ -380,11 +380,8 @@ private fun count(n: Int, noun: String) = when (n) {
 @Composable
 private fun rememberThumbnail(app: DesktopApp, video: File): ImageBitmap? {
     val version = app.thumbnails.versions[video.path]
-    LaunchedEffect(video) {
-        if (app.thumbnails.cached(video) == null) {
-            val position = app.settings.position(video.absolutePath)
-            app.thumbnails.request(video, if (position > 0) position.toString() else "20%")
-        }
-    }
+    val position = app.settings.position(video.absolutePath)
+    // again when it's been watched further on: Continue watching shows where it was left
+    LaunchedEffect(video, position) { app.thumbnails.request(video, position) }
     return remember(video, version) { app.thumbnails.cached(video) }
 }

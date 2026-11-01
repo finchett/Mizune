@@ -20,26 +20,38 @@ class Thumbnails(cacheDir: File) {
     private val directory = File(cacheDir, "thumbnails").apply { mkdirs() }
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "thumbnails").apply { isDaemon = true } }
     private val queued = HashSet<String>()
-    private val memory = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>) = size > 200
+    private val memory = object : LinkedHashMap<String, Frame>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Frame>) = size > 200
     }
+
+    /** A thumbnail and the position it was taken at, 0 for one from a fifth of the way in. */
+    private class Frame(val image: ImageBitmap, val at: Double)
 
     /** Bumped when a video's thumbnail appears, so only that card recomposes. */
     val versions = mutableStateMapOf<String, Long>()
 
-    /** The thumbnail if it is in memory; otherwise null, and [request] will fetch or make it. */
-    fun cached(video: File): ImageBitmap? = synchronized(memory) { memory[video.path] }
+    /** The thumbnail if it is in memory, from wherever it was taken; otherwise null, and [request] will fetch or make it. */
+    fun cached(video: File): ImageBitmap? = synchronized(memory) { memory[video.path]?.image }
 
-    /** Loads [video]'s thumbnail from disk, or generates it from [start] (an mpv position). */
-    fun request(video: File, start: String) {
+    /**
+     * Loads [video]'s thumbnail from disk, or generates it: from [at] seconds in, where it was left
+     * off, or a fifth of the way in for 0. One taken more than [CLOSE] seconds from [at] is taken
+     * again, so a video watched further on shows where it's got to.
+     */
+    fun request(video: File, at: Double) {
+        if (synchronized(memory) { memory[video.path] }?.let { close(it.at, at) } == true) return
         synchronized(queued) { if (!queued.add(video.path)) return }
         worker.execute {
             try {
-                val file = fileFor(video)
-                if (!file.exists()) generate(video, file, start)
+                val taken = framesOf(video)
+                val file = taken.firstOrNull { close(atOf(it), at) } ?: fileFor(video, at).also { file ->
+                    generate(video, file, if (at > 0) at.toString() else "20%")
+                    // the old frame stays until the new one is there
+                    if (file.exists()) taken.forEach(File::delete)
+                }
                 val image = runCatching { Image.makeFromEncoded(file.readBytes()).toComposeImageBitmap() }.getOrNull()
                     ?: return@execute
-                synchronized(memory) { memory[video.path] = image }
+                synchronized(memory) { memory[video.path] = Frame(image, atOf(file)) }
                 Snapshot.withMutableSnapshot { versions[video.path] = System.nanoTime() }
             } finally {
                 synchronized(queued) { queued.remove(video.path) }
@@ -47,8 +59,21 @@ class Thumbnails(cacheDir: File) {
         }
     }
 
+    private fun close(a: Double, b: Double) = kotlin.math.abs(a - b) <= CLOSE
+
     // a replaced or re-encoded file gets a new thumbnail
-    private fun fileFor(video: File) = File(directory, hash("${video.path}|${video.length()}|${video.lastModified()}") + ".jpg")
+    private fun keyOf(video: File) = hash("${video.path}|${video.length()}|${video.lastModified()}")
+
+    /** Where a frame taken [at] seconds in goes: the position follows an @ in its name, none for 0. */
+    private fun fileFor(video: File, at: Double) =
+        File(directory, keyOf(video) + (if (at > 0) "@${at.toLong()}" else "") + ".jpg")
+
+    private fun framesOf(video: File): List<File> {
+        val key = keyOf(video)
+        return directory.listFiles { file -> file.name == "$key.jpg" || file.name.startsWith("$key@") }.orEmpty().toList()
+    }
+
+    private fun atOf(file: File) = file.nameWithoutExtension.substringAfter('@', "0").toDoubleOrNull() ?: 0.0
 
     private fun generate(video: File, out: File, start: String) {
         val lib = MpvLib.INSTANCE
@@ -89,6 +114,11 @@ class Thumbnails(cacheDir: File) {
             Thread.sleep(80)
         }
         return null
+    }
+
+    private companion object {
+        /** How far, in seconds, a frame may be from where the video was left before it's taken again; the phone's too. */
+        const val CLOSE = 30.0
     }
 
     private fun hash(value: String): String =
