@@ -152,3 +152,37 @@ fun PanelIcon(color: Color, shown: Boolean, diameter: Dp = 16.dp) {
         }
     }
 }
+
+/**
+ * Sound: a speaker with up to two waves for [level] (0 to 1), or a cross beside it while [muted]
+ * or at nothing.
+ */
+@Composable
+fun VolumeIcon(color: Color, level: Float, muted: Boolean, diameter: Dp = 16.dp) {
+    Canvas(Modifier.size(diameter)) {
+        val d = size.minDimension
+        val speaker = Path().apply {
+            moveTo(d * 0.06f, d * 0.36f)
+            lineTo(d * 0.24f, d * 0.36f)
+            lineTo(d * 0.48f, d * 0.14f)
+            lineTo(d * 0.48f, d * 0.86f)
+            lineTo(d * 0.24f, d * 0.64f)
+            lineTo(d * 0.06f, d * 0.64f)
+            close()
+        }
+        drawPath(speaker, color)
+        val stroke = Stroke(d * 0.09f, cap = StrokeCap.Round)
+        if (muted || level <= 0f) {
+            drawLine(color, Offset(d * 0.64f, d * 0.36f), Offset(d * 0.92f, d * 0.64f), stroke.width, StrokeCap.Round)
+            drawLine(color, Offset(d * 0.92f, d * 0.36f), Offset(d * 0.64f, d * 0.64f), stroke.width, StrokeCap.Round)
+            return@Canvas
+        }
+        // the waves are arcs about the speaker's mouth; the far one only from halfway up
+        fun wave(radius: Float) = drawArc(
+            color, startAngle = -45f, sweepAngle = 90f, useCenter = false,
+            topLeft = Offset(d * 0.48f - radius, d * 0.5f - radius), size = Size(radius * 2, radius * 2), style = stroke,
+        )
+        wave(d * 0.2f)
+        if (level > 0.5f) wave(d * 0.4f)
+    }
+}

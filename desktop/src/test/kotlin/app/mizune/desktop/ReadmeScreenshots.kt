@@ -118,7 +118,8 @@ class ReadmeScreenshots {
 
     private fun player(app: DesktopApp, video: File) {
         val player = MpvPlayer()
-        player.property("mute", "yes")
+        // no sound out, rather than muted, which the player's volume control would undo
+        player.property("ao", "null")
         val session = PlayerSession(app.settings, player, video)
         val keys = PlayerKeys()
         try {

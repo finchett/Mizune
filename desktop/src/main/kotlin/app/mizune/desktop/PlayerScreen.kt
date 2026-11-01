@@ -106,6 +106,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import app.mizune.anki.MinedWord
 import app.mizune.desktop.mpv.MpvPlayer
 import app.mizune.dictionary.DictionaryLookup
@@ -121,6 +122,7 @@ import app.mizune.ui.Scrubber
 import app.mizune.ui.LineSkipIcon
 import app.mizune.ui.LineStopIcon
 import app.mizune.ui.ReplayIcon
+import app.mizune.ui.VolumeIcon
 import app.mizune.subs.translationFor
 import app.mizune.ui.ActiveLookup
 import app.mizune.ui.AnkiStatusText
@@ -283,6 +285,11 @@ fun PlayerScreen(
     // pan & scan: mpv crops to fill the area instead of letterboxing
     LaunchedEffect(settings.videoFill) {
         session.player.property("panscan", if (settings.videoFill) "1.0" else "0.0")
+    }
+
+    LaunchedEffect(settings.volume, settings.muted) {
+        session.player.property("volume", settings.volume.toString())
+        session.player.property("mute", if (settings.muted) "yes" else "no")
     }
 
     val videoHeight by session.player.videoHeight.collectAsState()
@@ -660,7 +667,7 @@ private val HiddenCursor = PointerIcon(
 
 /**
  * The bar along the bottom of the video, one compact row and the same in both layouts: play,
- * the time, the seek bar across the middle, then the line buttons, the menus and the panel, and
+ * the time, the seek bar across the middle, then the volume, the line buttons, the menus and the panel, and
  * off macOS (where the green traffic light does it) full screen. [onScrubbing] tells while a
  * scrub is under way.
  */
@@ -713,6 +720,7 @@ private fun Controls(
                 },
             )
         }
+        VolumeControl(app.settings, color = muted, hoverColor = white, accent = accent)
         LineButtons(app, session, color = muted, hoverColor = white)
         LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
         TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
@@ -721,6 +729,67 @@ private fun Controls(
         if (!isMac) FullscreenButton(keys, app.settings.keyMap.label(PlayerAction.FullScreen), color = muted, hoverColor = white)
     }
 }
+
+/**
+ * The speaker mutes and unmutes; the slider beside it sets the volume, by a click, a drag or the
+ * scroll wheel. Moving the slider unmutes.
+ */
+@Composable
+private fun VolumeControl(settings: Settings, color: Color, hoverColor: Color, accent: Color) {
+    val volume = settings.volume
+    val muted = settings.muted
+    fun set(value: Int) {
+        settings.updateVolume(value)
+        if (settings.muted) settings.updateMuted(false)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        val hint = if (muted) "Unmute" else "Mute"
+        Hint(hint, null) {
+            IconAction(
+                { settings.updateMuted(!muted) },
+                modifier = Modifier.semantics { contentDescription = hint },
+                color = color,
+                hoverColor = hoverColor,
+            ) { VolumeIcon(it, volume / 100f, muted) }
+        }
+        val interaction = remember { MutableInteractionSource() }
+        val hovered by interaction.collectIsHoveredAsState()
+        var held by remember { mutableStateOf(false) }
+        val thickness by animateDpAsState(if (hovered || held) 5.dp else 3.dp, label = "volume")
+        fun at(x: Float, width: Int) = ((x / width).coerceIn(0f, 1f) * 100).roundToInt()
+        Canvas(
+            Modifier.width(VOLUME_WIDTH).height(14.dp)
+                .hoverable(interaction)
+                .pointerHoverIcon(PointerIcon.Hand)
+                .semantics { contentDescription = "Volume" }
+                .onPointerEvent(PointerEventType.Scroll) { event ->
+                    val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: return@onPointerEvent
+                    if (dy != 0f) set(settings.volume + if (dy < 0) 5 else -5)
+                    event.changes.forEach { it.consume() }
+                }
+                .pointerInput(Unit) { detectTapGestures { set(at(it.x, size.width)) } }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { held = true; set(at(it.x, size.width)) },
+                        onDragEnd = { held = false },
+                        onDragCancel = { held = false },
+                    ) { change, _ ->
+                        change.consume()
+                        set(at(change.position.x, size.width))
+                    }
+                },
+        ) {
+            val h = thickness.toPx()
+            val y = (size.height - h) / 2
+            val radius = CornerRadius(h / 2)
+            val fraction = if (muted) 0f else volume / 100f
+            drawRoundRect(Color.White.copy(alpha = 0.28f), Offset(0f, y), Size(size.width, h), radius)
+            drawRoundRect(if (hovered || held) accent else Color.White, Offset(0f, y), Size(size.width * fraction, h), radius)
+        }
+    }
+}
+
+private val VOLUME_WIDTH = 64.dp
 
 /** Anime4K's preset, and its mode under Advanced: the same settings as Settings › Appearance › Shaders. */
 @Composable
