@@ -505,7 +505,8 @@ private val BAR_HEIGHT = 40.dp
  * way of it: the mouse moving shows only the pointer. All of them (the bar, the way back to the
  * library top right, and the traffic lights) come for the pointer anywhere outside [QuietArea]:
  * a band along the top, down the sides, and under the line, widening into the bottom corners.
- * They stay while it's there or on them, and go once it's back in the quiet area.
+ * They stay while it's on them; out there they go too once it's been still for a while, as they
+ * do once it's back in the quiet area.
  *
  * While [loading] (covered) the controls stay down, though the video waits paused.
  *
@@ -540,14 +541,20 @@ private fun VideoArea(
     // a menu opened from the controls keeps them up: the pointer is over the menu, not them
     var menuOpen by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf(false) }
+    // Full: whether the pointer has moved lately, which the edge needs as well to keep the controls up
+    var stirred by remember { mutableStateOf(false) }
     LaunchedEffect(lastMove) {
         moving = lastMove > 0
+        stirred = lastMove > 0
         delay(CONTROLS_TIMEOUT_MS)
         moving = false
+        stirred = false
     }
     val full = app.settings.panelHidden
     // Full: whether the pointer is outside the quiet area, which brings the controls up
     var atEdge by remember { mutableStateOf(false) }
+    // whether the pointer has left the video, where it can't be seen to stop: no timer runs then
+    var gone by remember { mutableStateOf(false) }
     // a scrub keeps them up, wherever the drag goes
     var scrubbing by remember { mutableStateOf(false) }
     // a layout change takes the controls away under the pointer, so no Exit comes to say it's gone
@@ -560,7 +567,7 @@ private fun VideoArea(
     val visible = if (loading) {
         false
     } else if (full) {
-        atEdge || overControls || menuOpen || scrubbing
+        (atEdge && (stirred || gone)) || overControls || menuOpen || scrubbing
     } else {
         (paused && !stoppedAtLine) || moving || overControls || menuOpen || scrubbing
     }
@@ -572,6 +579,7 @@ private fun VideoArea(
             .onSizeChanged { size = it }
             .onPointerEvent(PointerEventType.Move) { event ->
                 lastMove = System.nanoTime()
+                gone = false
                 if (!app.settings.panelHidden) return@onPointerEvent
                 val at = event.changes.firstOrNull()?.position ?: return@onPointerEvent
                 if (size.width == 0 || size.height == 0) return@onPointerEvent
@@ -579,7 +587,10 @@ private fun VideoArea(
             }
             // left as it is when the pointer leaves: over the traffic lights it has left the content
             // too, and past the window's edge it's still on its way to the controls
-            .onPointerEvent(PointerEventType.Exit) { moving = false }
+            .onPointerEvent(PointerEventType.Exit) {
+                moving = false
+                gone = true
+            }
             .pointerHoverIcon(if (visible || moving) PointerIcon.Default else HiddenCursor)
             .pointerInput(session) {
                 detectTapGestures(
