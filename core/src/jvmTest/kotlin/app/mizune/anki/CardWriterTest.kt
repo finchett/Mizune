@@ -20,7 +20,7 @@ class CardWriterTest {
         override fun decks() = listOf("Mining")
         override fun findNotes(deck: String, field: String, value: String) =
             notes.filterValues { it[field] == value }.keys.toList()
-        override fun storeMedia(file: File): String = file.name.also { media += it }
+        override fun storeMedia(name: String, data: ByteArray): String = name.also { media += it }
         override fun addNote(deck: String, noteType: String, fields: Map<String, String>, tags: List<String>, allowDuplicate: Boolean): Long =
             (notes.size + 1L).also { notes[it] = fields }
         override fun deleteNotes(ids: List<Long>) { ids.forEach(notes::remove) }
@@ -32,18 +32,19 @@ class CardWriterTest {
         translation = null, videoName = "Show 01", start = 10.0, end = 12.0,
     )
 
-    private class Media(val audioWorks: Boolean) : CardMedia {
+    private val dir: File = Files.createTempDirectory("cards").toFile()
+
+    private inner class Media(val audioWorks: Boolean) : FileCardMedia(dir) {
         var made = 0
         override fun audio(word: MinedWord, out: File) = audioWorks.also { if (it) { out.writeText("ogg"); made++ } }
         override fun image(word: MinedWord, base: File) = File(base.path + ".webp").also { it.writeText("img"); made++ }
     }
 
-    private val dir: File = Files.createTempDirectory("cards").toFile()
     private val target = CardTarget(CardFormats.JapaneseSentencesPlus, "Mining", listOf("mizune"))
 
     @Test fun addsWithMediaThenRefusesTheDuplicateBeforeMakingMedia() {
         val anki = FakeAnki()
-        val writer = CardWriter(anki, dir)
+        val writer = CardWriter(anki)
         val added = writer.add(word, target, Media(audioWorks = true))
         assertEquals(emptyList<String>(), added.missing)
         assertEquals("[sound:Show_01_00m10s000ms_00m12s000ms.ogg]", anki.notes.getValue(added.noteId)["SentAudio"])
@@ -65,7 +66,7 @@ class CardWriterTest {
 
     @Test fun addsTheDuplicateWhenAllowed() {
         val anki = FakeAnki()
-        val writer = CardWriter(anki, dir)
+        val writer = CardWriter(anki)
         val first = writer.add(word, target, Media(audioWorks = true))
         val again = writer.add(word, CardTarget(target.format, target.deck, target.tags, allowDuplicates = true), Media(audioWorks = true))
         assertTrue(again.noteId != first.noteId)
@@ -74,14 +75,14 @@ class CardWriterTest {
 
     @Test fun missingAudioStillAddsTheCard() {
         val anki = FakeAnki()
-        val added = CardWriter(anki, dir).add(word, target, Media(audioWorks = false))
+        val added = CardWriter(anki).add(word, target, Media(audioWorks = false))
         assertEquals(listOf("audio"), added.missing)
         assertEquals("", anki.notes.getValue(added.noteId)["SentAudio"])
     }
 
     @Test fun missingDeckIsExplained() {
         try {
-            CardWriter(FakeAnki(), dir).add(word, CardTarget(target.format, "Nope", emptyList()), Media(true))
+            CardWriter(FakeAnki()).add(word, CardTarget(target.format, "Nope", emptyList()), Media(true))
             fail("added to a missing deck")
         } catch (e: AnkiException) {
             assertEquals("Deck \"Nope\" isn't in Anki", e.message)

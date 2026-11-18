@@ -13,6 +13,7 @@ import app.mizune.subs.MatroskaSubtitleExtractor
 import app.mizune.subs.SubtitleEncoding
 import app.mizune.subs.SubtitleFiles
 import app.mizune.subs.SubtitleTrack
+import app.mizune.subs.extractEmbedded
 import app.mizune.ui.AnkiCards
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

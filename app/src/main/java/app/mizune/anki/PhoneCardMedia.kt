@@ -19,7 +19,8 @@ class PhoneCardMedia(
     private val videoUri: String,
     /** mpv's audio track number (1 = the first audio track), or null for the first. */
     private val audioTrack: Int?,
-) : CardMedia {
+    mediaDir: File,
+) : FileCardMedia(mediaDir) {
     private companion object {
         /** Seconds of a long line that get animated. */
         const val MAX_ANIMATION = 10.0

@@ -15,6 +15,17 @@ dependencyResolutionManagement {
         maven("https://jitpack.io") {
             content { includeGroup("cz.adaptech.tesseract4android") }
         }
+        // Node.js and Yarn for core's JavaScript build and tests (the browser extension)
+        ivy("https://nodejs.org/dist") {
+            patternLayout { artifact("v[revision]/[artifact](-v[revision]-[classifier]).[ext]") }
+            metadataSources { artifact() }
+            content { includeModule("org.nodejs", "node") }
+        }
+        ivy("https://github.com/yarnpkg/yarn/releases/download") {
+            patternLayout { artifact("v[revision]/[artifact](-v[revision]).[ext]") }
+            metadataSources { artifact() }
+            content { includeModule("com.yarnpkg", "yarn") }
+        }
     }
 }
 

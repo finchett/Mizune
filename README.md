@@ -80,7 +80,7 @@ Once a day the app sends Google Analytics a random ID made for your install, you
 its version, and the app's version. Nothing about what you watch, look up or add to Anki, and
 no account. It uses the Measurement Protocol, not Google's SDK, and on desktop it only starts
 after setup. Turn it off during setup or under Settings › General › Privacy (Settings › Privacy
-on Android). The code is in [`UsageStats`](core/src/main/kotlin/app/mizune/stats/UsageStats.kt).
+on Android). The code is in [`UsageStats`](core/src/jvmMain/kotlin/app/mizune/stats/UsageStats.kt).
 
 ## Keys (desktop)
 

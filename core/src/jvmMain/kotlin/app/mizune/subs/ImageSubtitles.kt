@@ -62,7 +62,7 @@ class FileLineStore(private val file: File) : LineStore {
  * after one viewing the whole track is read and stored. [cues] is a live view: a line's text is ""
  * until it has been read, and [onRead] is told as each one is.
  */
-class PictureLines(
+actual class PictureLines(
     private val track: ImageSubtitleTrack,
     private val newRecognizer: () -> TextRecognizer,
     private val store: LineStore? = null,

@@ -304,7 +304,7 @@ fun PlayerScreen(
         // the frame on screen, if it's from this line; otherwise one from the middle of it
         val position = session.position.value
         val frameAt = if (position in word.start..word.end) position else (word.start + word.end) / 2
-        app.anki.add(word, VideoClips.ForCard(settings, session.video, session.player.propertyString("aid"), frameAt))
+        app.anki.add(word, VideoClips.ForCard(settings, session.video, session.player.propertyString("aid"), frameAt, app.anki.mediaDir))
     }
 
     DisposableEffect(keys, settings.ankiEnabled) {

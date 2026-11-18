@@ -189,10 +189,10 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     }
 
     fun cardFormat(noteType: String): CardFormat? =
-        ankiFormats.optJSONObject(noteType)?.let { CardFormats.upgrade(CardFormat.fromJson(noteType, it)) }
+        ankiFormats.optJSONObject(noteType)?.let { CardFormats.upgrade(CardFormat.fromJson(noteType, it.toString())) }
 
     fun saveCardFormat(format: CardFormat) {
-        val all = JSONObject(ankiFormats.toString()).put(format.noteType, format.toJson())
+        val all = JSONObject(ankiFormats.toString()).put(format.noteType, JSONObject(format.toJson()))
         ankiFormats = all
         prefs.put("anki_formats", all.toString())
     }

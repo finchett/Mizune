@@ -31,7 +31,9 @@ class AnkiDroid(private val context: Context) : AnkiBackend {
         return query(NOTES, arrayOf("_id"), search, whenNone = emptyList()) { it.getLong(0) }
     }
 
-    override fun storeMedia(file: File): String {
+    override fun storeMedia(name: String, data: ByteArray): String {
+        // AnkiDroid reads it from a file this app shares with it (res/xml/file_paths.xml)
+        val file = File(context.cacheDir, "anki/$name").apply { parentFile?.mkdirs(); writeBytes(data) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
         context.grantUriPermission(PACKAGE, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try {
@@ -44,6 +46,7 @@ class AnkiDroid(private val context: Context) : AnkiBackend {
             return File(stored.path ?: file.name).name
         } finally {
             context.revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            file.delete()
         }
     }
 

@@ -206,10 +206,10 @@ class Prefs(context: Context) {
         set(value) = prefs.edit { putString("anki_formats", value.toString()) }
 
     fun cardFormat(noteType: String): CardFormat? =
-        ankiFormats.optJSONObject(noteType)?.let { CardFormats.upgrade(CardFormat.fromJson(noteType, it)) }
+        ankiFormats.optJSONObject(noteType)?.let { CardFormats.upgrade(CardFormat.fromJson(noteType, it.toString())) }
 
     fun saveCardFormat(format: CardFormat) {
-        ankiFormats = ankiFormats.put(format.noteType, format.toJson())
+        ankiFormats = ankiFormats.put(format.noteType, JSONObject(format.toJson()))
     }
 
     /** Gives [noteType] a source for each of [fieldNames]: as saved where it still fits, otherwise suggested. */

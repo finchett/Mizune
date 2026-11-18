@@ -1744,5 +1744,5 @@ private fun minedWord(session: PlayerSession, lookup: ActiveLookup, entry: TermE
 
 private fun addCard(app: App, session: PlayerSession, word: MinedWord) {
     val audioTrack = runCatching { MPVLib.getPropertyString("aid")?.toIntOrNull() }.getOrNull()
-    app.anki.add(word, PhoneCardMedia(app, app.prefs, session.videoUri, audioTrack))
+    app.anki.add(word, PhoneCardMedia(app, app.prefs, session.videoUri, audioTrack, app.anki.mediaDir))
 }

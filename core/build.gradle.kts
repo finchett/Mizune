@@ -2,12 +2,31 @@ plugins {
     id("org.jetbrains.kotlin.multiplatform")
 }
 
-// Shared by the Android and desktop apps, so nothing here may touch android.* or java.awt.
+// Shared by the Android and desktop apps and the browser extension, so nothing here may touch
+// android.* or java.awt. What every one of them runs is in commonMain; jvmMain has what only
+// the apps need (files, video containers, JDBC) and the JVM's side of the platform pieces, and
+// jsMain the browser's.
 kotlin {
     jvmToolchain(17)
     jvm()
+    js {
+        // the extension's worker; the tests run under Node, which needs no browser installed
+        browser { testTask { enabled = false } }
+        nodejs()
+        binaries.library()
+    }
 
     sourceSets {
+        commonMain.dependencies {
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+        }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
+        jsMain.dependencies {
+            // dictionary zips, read in the extension's worker
+            implementation(npm("fflate", "0.8.3"))
+        }
         jvmMain.dependencies {
             // Android ships org.json in the platform; the desktop app supplies the same API from Maven.
             compileOnly("org.json:json:20250517")

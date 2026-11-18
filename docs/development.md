@@ -51,7 +51,7 @@ Android won't update an app signed with a different key.
 ## Tests
 
 ```sh
-./gradlew :core:test
+./gradlew :core:allTests   # on the JVM, and in Node.js for what the browser extension shares
 MIZUNE_TEST_VIDEO=any.mkv ./gradlew :desktop:test   # drives the real player offscreen
 MIZUNE_TEST_PGS=bluray.mkv ./gradlew :desktop:test  # reads a real episode's PGS tracks
 ```
@@ -63,16 +63,16 @@ unless you point it at a real episode:
 MIZUNE_TEST_MKV=episode.mkv \
 MIZUNE_TEST_JA_SRT=episode.ja.srt \  # ffmpeg -i episode.mkv -map 0:s:<ja> episode.ja.srt
 MIZUNE_TEST_EN_ASS=episode.en.ass \  # ffmpeg -i episode.mkv -map 0:s:<en> -c:s copy episode.en.ass
-./gradlew :core:test
+./gradlew :core:jvmTest
 ```
 
-The MP4 tests run on small files in `core/src/test/resources/mp4`. One more compares a real
+The MP4 tests run on small files in `core/src/jvmTest/resources/mp4`. One more compares a real
 file's first text track with ffmpeg's reading of it:
 
 ```sh
 MIZUNE_TEST_MP4=episode.mp4 \
 MIZUNE_TEST_MP4_SRT=episode.srt \  # ffmpeg -i episode.mp4 -map 0:s:0 episode.srt
-./gradlew :core:test
+./gradlew :core:jvmTest
 ```
 
 The README's screenshots come from `ReadmeScreenshots`, which renders the real screens at twice
@@ -92,7 +92,8 @@ adb shell run-as app.mizune cat files/last_crash.txt
 ## Layout
 
 ```
-core/       plain Kotlin/JVM, shared by every platform
+core/       Kotlin Multiplatform, shared by every platform. commonMain also builds for
+            JavaScript, for the browser extension; jvmMain is what only the apps use
   subs/        SRT/ASS parsers, Matroska and MP4 extractors, embedded-track cache, PGS decoding
                and line-by-line OCR (the engine is each platform's)
   media/       audio tracks as mpv lists them
