@@ -59,7 +59,8 @@ class AnkiCards(
     private val connect: () -> AnkiBackend,
     /** Where cards go now, or throws an [AnkiException] saying what still has to be set up. */
     private val target: () -> CardTarget,
-    private val mediaDir: File,
+    /** Where card media is made before it goes to Anki. */
+    val mediaDir: File,
     private val logError: (String, Throwable) -> Unit,
     /** Whether the app shows [duplicate] for the user to answer; otherwise a card Anki has is just refused. */
     private val asksAboutDuplicates: Boolean = false,
@@ -94,7 +95,7 @@ class AnkiCards(
     fun add(word: MinedWord, media: CardMedia, anyway: Boolean = false) = run(word, "Adding ${word.entry.expression} to Anki…") {
         try {
             val target = target().let { if (anyway) it.copy(allowDuplicates = true) else it }
-            val added = CardWriter(connect(), mediaDir).add(word, target, media)
+            val added = CardWriter(connect()).add(word, target, media)
             notes[word.key] = added.noteId
             val missing = added.missing.joinToString(" or ").ifEmpty { null }
             "Added ${word.entry.expression} to Anki" + (missing?.let { " (no $it)" } ?: "")
@@ -115,7 +116,7 @@ class AnkiCards(
     /** Deletes the note made of [word]. */
     fun remove(word: MinedWord) = run(word, "Removing ${word.entry.expression} from Anki…") {
         val id = notes[word.key] ?: throw AnkiException("That card isn't known to be in Anki")
-        CardWriter(connect(), mediaDir).remove(id)
+        CardWriter(connect()).remove(id)
         notes.remove(word.key)
         "Removed ${word.entry.expression} from Anki"
     }

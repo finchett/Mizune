@@ -1,7 +1,7 @@
 package app.mizune.desktop
 
 import com.sun.jna.Pointer
-import app.mizune.anki.CardMedia
+import app.mizune.anki.FileCardMedia
 import app.mizune.anki.MinedWord
 import app.mizune.desktop.mpv.MpvLib
 import java.io.File
@@ -71,7 +71,8 @@ object VideoClips {
         private val video: File,
         private val audioTrack: String?,
         private val frameAt: Double,
-    ) : CardMedia {
+        mediaDir: File,
+    ) : FileCardMedia(mediaDir) {
         override fun audio(word: MinedWord, out: File): Boolean {
             val padding = settings.ankiAudioPadding
             return audioClip(video, word.start - padding, word.end + padding, audioTrack, out)

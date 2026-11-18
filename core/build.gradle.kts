@@ -1,21 +1,40 @@
 plugins {
-    id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.kotlin.multiplatform")
 }
 
-// Shared by the Android and desktop apps, so nothing here may touch android.* or java.awt.
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-}
-
+// Shared by the Android and desktop apps and the browser extension, so nothing here may touch
+// android.* or java.awt. What every one of them runs is in commonMain; jvmMain has what only
+// the apps need (files, video containers, JDBC) and the JVM's side of the platform pieces, and
+// jsMain the browser's.
 kotlin {
-    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
-}
+    jvmToolchain(17)
+    jvm()
+    js {
+        // the extension's worker; the tests run under Node, which needs no browser installed
+        browser { testTask { enabled = false } }
+        nodejs()
+        binaries.library()
+    }
 
-dependencies {
-    // Android ships org.json in the platform; the desktop app supplies the same API from Maven.
-    compileOnly("org.json:json:20250517")
-    testImplementation("org.json:json:20250517")
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.xerial:sqlite-jdbc:3.50.3.0")
+    sourceSets {
+        commonMain.dependencies {
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+        }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
+        jsMain.dependencies {
+            // dictionary zips, read in the extension's worker
+            implementation(npm("fflate", "0.8.3"))
+        }
+        jvmMain.dependencies {
+            // Android ships org.json in the platform; the desktop app supplies the same API from Maven.
+            compileOnly("org.json:json:20250517")
+        }
+        jvmTest.dependencies {
+            implementation("org.json:json:20250517")
+            implementation("junit:junit:4.13.2")
+            implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+        }
+    }
 }

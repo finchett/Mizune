@@ -12,6 +12,7 @@ import androidx.compose.ui.test.runDesktopComposeUiTest
 import app.mizune.anki.CardFormats
 import app.mizune.anki.CardMedia
 import app.mizune.anki.MinedWord
+import app.mizune.anki.Picture
 import app.mizune.dictionary.Definition
 import app.mizune.dictionary.TermEntry
 import app.mizune.ui.AppTheme
@@ -80,8 +81,8 @@ class DuplicateCardTest {
     }
 
     private object NoMedia : CardMedia {
-        override fun audio(word: MinedWord, out: File) = false
-        override fun image(word: MinedWord, base: File): File? = null
+        override fun audio(word: MinedWord): ByteArray? = null
+        override fun image(word: MinedWord): Picture? = null
     }
 
     private val word = MinedWord(
