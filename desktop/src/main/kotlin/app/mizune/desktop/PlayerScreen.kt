@@ -99,7 +99,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -727,7 +729,8 @@ private val HiddenCursor = PointerIcon(
  * The bar along the bottom of the video, one compact row and the same in both layouts: play,
  * the time, the seek bar across the middle, then the line buttons and the stop at the line's end,
  * the volume, the menus and the panel, and off macOS (where the green traffic light does it) full
- * screen. [onScrubbing] tells while a scrub is under way.
+ * screen. While the seek bar is pointed at or dragged, the picture from that point and its time
+ * show over it ([SeekBarPreview]). [onScrubbing] tells while a scrub is under way.
  */
 @Composable
 private fun Controls(
@@ -741,54 +744,76 @@ private fun Controls(
     val duration by session.duration.collectAsState()
     val paused by session.paused.collectAsState()
     var scrubbing by remember { mutableStateOf<Double?>(null) }
+    // the point under the pointer on the seek bar, and where the seek bar is along the bar
+    var pointedAt by remember { mutableStateOf<Double?>(null) }
+    var barX by remember { mutableFloatStateOf(0f) }
+    var trackX by remember { mutableFloatStateOf(0f) }
+    var trackWidth by remember { mutableIntStateOf(0) }
     val white = Color.White
     val muted = white.copy(alpha = 0.85f)
     val accent = accentOnVideo()
-    Row(
-        Modifier.fillMaxWidth().height(BAR_HEIGHT)
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        TextAction(
-            if (paused) "▶" else "❚❚",
-            onClick = session::togglePause,
-            color = white,
-            style = MaterialTheme.typography.titleMedium,
-            hoverColor = white,
+    val previewAt = scrubbing ?: pointedAt
+    Box {
+        SeekBarPreview(
+            session.previews,
+            at = previewAt,
+            duration = duration,
+            x = trackX - barX + if (duration > 0) ((previewAt ?: 0.0) / duration).toFloat().coerceIn(0f, 1f) * trackWidth else 0f,
         )
-        // digits of one width, and room for the longest the time gets, so the bar beside it never moves
-        val timeStyle = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum")
-        Box {
-            Text("${formatTime(duration).replace(Regex("\\d"), "0")} / ${formatTime(duration)}", style = timeStyle, color = Color.Transparent)
-            Text("${formatTime(scrubbing ?: position)} / ${formatTime(duration)}", style = timeStyle, color = muted)
-        }
-        Box(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-            Scrubber(
-                position = scrubbing ?: position,
-                duration = duration,
-                onScrub = {
-                    scrubbing = it
-                    onScrubbing(true)
-                },
-                onScrubEnd = {
-                    scrubbing?.let(session::seekTo)
-                    scrubbing = null
-                    onScrubbing(false)
-                },
-                color = accent,
+        Row(
+            Modifier.fillMaxWidth().height(BAR_HEIGHT)
+                .onGloballyPositioned { barX = it.positionInWindow().x }
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextAction(
+                if (paused) "▶" else "❚❚",
+                onClick = session::togglePause,
+                color = white,
+                style = MaterialTheme.typography.titleMedium,
+                hoverColor = white,
             )
+            // digits of one width, and room for the longest the time gets, so the bar beside it never moves
+            val timeStyle = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum")
+            Box {
+                Text("${formatTime(duration).replace(Regex("\\d"), "0")} / ${formatTime(duration)}", style = timeStyle, color = Color.Transparent)
+                Text("${formatTime(scrubbing ?: position)} / ${formatTime(duration)}", style = timeStyle, color = muted)
+            }
+            Box(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                Scrubber(
+                    position = scrubbing ?: position,
+                    duration = duration,
+                    onScrub = {
+                        scrubbing = it
+                        onScrubbing(true)
+                    },
+                    onScrubEnd = {
+                        scrubbing?.let(session::seekTo)
+                        scrubbing = null
+                        onScrubbing(false)
+                    },
+                    modifier = Modifier.semantics { contentDescription = "Seek" }
+                        .onGloballyPositioned {
+                            trackX = it.positionInWindow().x
+                            trackWidth = it.size.width
+                        },
+                    color = accent,
+                    onPoint = { pointedAt = it },
+                    pointedAt = previewAt,
+                )
+            }
+            LineButtons(app, session, color = muted, hoverColor = white)
+            // the panel's footer has the same one, so it's only here while the panel is away
+            if (app.settings.panelHidden) LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
+            VolumeControl(app.settings, session, color = muted, hoverColor = white, accent = accent)
+            // on macOS the panel's header has the same cog, so it's only here while the panel is away
+            if (ownsFrame || app.settings.panelHidden) TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
+            ShaderMenu(app, session, onMenu, accent)
+            PanelButton(app, color = muted, hoverColor = white)
+            if (!isMac) FullscreenButton(keys, app.settings.keyMap.label(PlayerAction.FullScreen), color = muted, hoverColor = white)
         }
-        LineButtons(app, session, color = muted, hoverColor = white)
-        // the panel's footer has the same one, so it's only here while the panel is away
-        if (app.settings.panelHidden) LineStopButton(app, session, color = muted, hoverColor = white, accent = accent)
-        VolumeControl(app.settings, session, color = muted, hoverColor = white, accent = accent)
-        // on macOS the panel's header has the same cog, so it's only here while the panel is away
-        if (ownsFrame || app.settings.panelHidden) TrackMenu(app.settings, session, onMenu, color = muted, hoverColor = white)
-        ShaderMenu(app, session, onMenu, accent)
-        PanelButton(app, color = muted, hoverColor = white)
-        if (!isMac) FullscreenButton(keys, app.settings.keyMap.label(PlayerAction.FullScreen), color = muted, hoverColor = white)
     }
 }
 
