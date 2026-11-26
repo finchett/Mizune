@@ -30,6 +30,8 @@ class PlayerSession(
     private val path = video.absolutePath
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sitting = Sitting()
+    /** Pictures of the video for over the seek bar. */
+    val previews = SeekPreviews(video)
 
     val position: StateFlow<Double> get() = player.position
     val duration: StateFlow<Double> get() = player.duration
@@ -122,6 +124,7 @@ class PlayerSession(
 
     fun close() {
         savePosition()
+        previews.close()
         _tracks.value.forEach { it.pictures?.close() }
         scope.cancel()
         player.command("stop")

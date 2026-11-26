@@ -20,7 +20,10 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
@@ -60,6 +63,8 @@ object QuietArea {
 /**
  * A thin seek bar that thickens under the pointer, or a finger. [touchHeight] is the height it can
  * be grabbed in; [color] fills the part played, the accent the controls around it use.
+ * [onPoint], if given, is told the point under a mouse pointer as it moves over the bar, and null
+ * once it leaves; [pointedAt] lightens the bar up to a point (under the part played).
  */
 @Composable
 fun Scrubber(
@@ -70,6 +75,8 @@ fun Scrubber(
     modifier: Modifier = Modifier,
     touchHeight: Dp = 14.dp,
     color: Color = MaterialTheme.colorScheme.primary,
+    onPoint: ((Double?) -> Unit)? = null,
+    pointedAt: Double? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
@@ -80,6 +87,22 @@ fun Scrubber(
         modifier.fillMaxWidth().height(touchHeight)
             .hoverable(interaction)
             .pointerHoverIcon(PointerIcon.Hand)
+            .then(
+                if (onPoint == null) Modifier else Modifier.pointerInput(duration) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull() ?: continue
+                            if (change.type != PointerType.Mouse) continue
+                            val inside = change.position.x in 0f..size.width.toFloat() && change.position.y in 0f..size.height.toFloat()
+                            when {
+                                event.type == PointerEventType.Exit || !inside -> onPoint(null)
+                                else -> onPoint(at(change.position.x, size.width))
+                            }
+                        }
+                    }
+                },
+            )
             .pointerInput(duration) {
                 detectTapGestures { onScrub(at(it.x, size.width)); onScrubEnd() }
             }
@@ -108,6 +131,10 @@ fun Scrubber(
         val radius = CornerRadius(h / 2)
         val fraction = if (duration > 0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f
         drawRoundRect(Color.White.copy(alpha = 0.28f), Offset(0f, y), Size(size.width, h), radius)
+        if (pointedAt != null && duration > 0) {
+            val pointed = (pointedAt / duration).toFloat().coerceIn(0f, 1f)
+            drawRoundRect(Color.White.copy(alpha = 0.22f), Offset(0f, y), Size(size.width * pointed, h), radius)
+        }
         drawRoundRect(color, Offset(0f, y), Size(size.width * fraction, h), radius)
     }
 }

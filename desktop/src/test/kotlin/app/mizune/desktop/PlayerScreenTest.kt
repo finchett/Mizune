@@ -686,4 +686,54 @@ class PlayerScreenTest {
             }
         }
     }
+
+    /**
+     * Over the seek bar, the time and then a picture from that point show; dragging shows the
+     * dragged-to point's, and letting go seeks there. No mpv for them is open before.
+     */
+    @Test
+    fun seekBarPreview() {
+        assumeTrue("set MIZUNE_TEST_VIDEO", videoSource?.isFile == true)
+        fixture(ja = srt(1.0..2.0 to "一つ目の行。"), en = srt(1.0..2.0 to "The first line.")) {
+            runDesktopComposeUiTest(width = 1440, height = 860) {
+                setContent {
+                    DesktopTheme(AppTheme.Jade) {
+                        PlayerScreen(app, session, PlayerKeys(), onBack = {}, onOpenVideo = {})
+                    }
+                }
+                waitUntil(timeoutMillis = 15_000) { session.player.videoHeight.value > 0 && !session.paused.value }
+                session.pause()
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithContentDescription("Seek").fetchSemanticsNodes().isNotEmpty() }
+                val duration = session.duration.value
+                assertFalse("previews open before the seek bar is pointed at", session.previews.isOpen)
+                // each point's picture is a new one
+                fun hoverFor(fraction: Float, name: String) {
+                    val made = session.previews.made
+                    onNodeWithContentDescription("Seek").performMouseInput { moveTo(Offset(width * fraction, height / 2f)) }
+                    waitUntil(timeoutMillis = 10_000) { session.previews.made > made && !session.previews.isMaking }
+                    waitForIdle()
+                    shot(name)
+                }
+
+                hoverFor(0.3f, "18-seek-preview-hover")
+                assertTrue(session.previews.isOpen)
+                // kept inside the bar's end
+                hoverFor(0.97f, "18-seek-preview-end")
+                hoverFor(0.01f, "18-seek-preview-start")
+
+                val made = session.previews.made
+                onNodeWithContentDescription("Seek").performMouseInput {
+                    moveTo(Offset(width * 0.2f, height / 2f))
+                    press()
+                    moveTo(Offset(width * 0.45f, height / 2f))
+                    moveTo(Offset(width * 0.7f, height / 2f))
+                }
+                waitUntil(timeoutMillis = 10_000) { session.previews.made > made && !session.previews.isMaking }
+                waitForIdle()
+                shot("18-seek-preview-drag")
+                onNodeWithContentDescription("Seek").performMouseInput { release() }
+                waitUntil(timeoutMillis = 5_000) { kotlin.math.abs(session.position.value - duration * 0.7) < duration * 0.01 }
+            }
+        }
+    }
 }
