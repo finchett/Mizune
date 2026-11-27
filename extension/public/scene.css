@@ -1,0 +1,23 @@
+/* The summer scene (scene.ts): how it moves, on a page, and .ks-paused to hold it still. Where it is and how big is up to the page. */
+.ks-c1{animation:ks-dx 22s linear infinite}
+.ks-c2{animation:ks-dx 34s linear -14s infinite}
+.ks-bt{animation:ks-dx 26s linear -9s infinite reverse}
+@keyframes ks-dx{from{transform:translateX(-60px)}to{transform:translateX(450px)}}
+.ks-bd{animation:ks-fl 9s linear infinite}
+@keyframes ks-fl{from{transform:translate(-30px,125px)}to{transform:translate(430px,55px)}}
+.ks-wl,.ks-wr{transform-box:fill-box;transform-origin:100% 100%;animation:ks-wl .3s ease-in-out infinite alternate}
+.ks-wr{transform-origin:0 100%;animation-name:ks-wr}
+@keyframes ks-wl{from{transform:rotate(38deg)}to{transform:rotate(-28deg)}}
+@keyframes ks-wr{from{transform:rotate(-38deg)}to{transform:rotate(28deg)}}
+.ks-wv{animation:ks-wv 6s linear infinite}
+@keyframes ks-wv{to{transform:translateX(var(--p))}}
+.ks-g1{animation:ks-tw 1.7s ease-in-out infinite alternate}
+.ks-g2{animation:ks-tw 2.3s ease-in-out infinite alternate-reverse}
+@keyframes ks-tw{to{opacity:.15}}
+.ks-rb,.ks-hs,.ks-dr,.ks-tf{transform-box:fill-box;transform-origin:0 50%;animation:ks-rb .7s ease-in-out infinite alternate}
+.ks-hs{animation-duration:1.1s}
+@keyframes ks-rb{from{transform:rotate(-14deg)}to{transform:rotate(12deg)}}
+.ks-dr{transform-origin:50% 0;animation:ks-sk 1.4s ease-in-out infinite alternate}
+.ks-tf{transform-origin:50% 100%;animation:ks-sk 1.8s ease-in-out infinite alternate}
+@keyframes ks-sk{from{transform:skewX(-5deg)}to{transform:skewX(9deg)}}
+.ks-paused *{animation-play-state:paused}

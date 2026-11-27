@@ -85,6 +85,7 @@ object SubtitleFiles {
     fun parseSidecar(fileName: String, content: String): SubtitleTrack? {
         val cues = when (fileName.substringAfterLast('.').lowercase()) {
             "ass", "ssa" -> AssParser.parse(content)
+            "ttml", "dfxp", "xml" -> TtmlParser.parse(content)
             else -> SrtParser.parse(content)
         }
         if (cues.isEmpty()) return null

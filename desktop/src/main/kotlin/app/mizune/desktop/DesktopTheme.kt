@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -185,7 +186,8 @@ fun IconAction(
 /**
  * A header bar that stays put, a hairline unless [hairline] is false, and the body below it. A
  * screen with a sidebar passes it as [leading]: it runs the full height, the traffic lights sit
- * over its top, and the header and its hairline start where it ends.
+ * over its top, and the header and its hairline start where it ends. A column at the right, as
+ * [trailing], runs the full height too, and has the window's buttons over its top instead.
  */
 @Composable
 fun Chrome(
@@ -193,16 +195,21 @@ fun Chrome(
     body: @Composable () -> Unit,
     leading: (@Composable () -> Unit)? = null,
     hairline: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         leading?.invoke()
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
             Box(
                 Modifier.fillMaxWidth().height(HeaderHeight).movesWindow()
-                    .padding(start = if (leading == null) HeaderStart else 32.dp, end = 12.dp + HeaderEnd),
+                    .padding(
+                        start = if (leading == null) HeaderStart else 32.dp,
+                        end = 12.dp + if (trailing == null) HeaderEnd else 0.dp,
+                    ),
             ) { header() }
             if (hairline) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Box(Modifier.fillMaxSize()) { body() }
         }
+        trailing?.invoke()
     }
 }

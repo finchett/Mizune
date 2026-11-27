@@ -68,9 +68,37 @@ tasks.test {
     System.getenv("MIZUNE_TEST_ANKI")?.let { environment("MIZUNE_TEST_ANKI", it) }
 }
 
+// A dev run can't be started by a browser itself, so the extension starts this script instead,
+// which runs the same classes; :desktop:run tells the app where it is (see BrowserRegistration).
+val writeBrowserHost by tasks.registering {
+    dependsOn("classes")
+    val classpath = sourceSets.main.get().runtimeClasspath
+    val java = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(17)) }.map { it.executablePath.asFile.path }
+    val script = layout.buildDirectory.file("browser-host/mizune-browser-host")
+    inputs.files(classpath)
+    outputs.file(script)
+    doLast {
+        script.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                "#!/bin/sh\n# started by Chrome or Firefox for the extension (dev runs only)\n" +
+                    "exec \"${java.get()}\" -Djna.library.path=/opt/homebrew/lib:/usr/local/lib:/usr/lib " +
+                    "-cp '${classpath.files.joinToString(":")}' app.mizune.desktop.MainKt \"\$@\"\n",
+            )
+            setExecutable(true)
+        }
+    }
+}
+
+tasks.matching { it.name == "run" }.configureEach { dependsOn(writeBrowserHost) }
+
 compose.desktop {
     application {
         mainClass = "app.mizune.desktop.MainKt"
+        // the script the browser extension can start in a dev run (writeBrowserHost); not on Windows
+        if (!System.getProperty("os.name").lowercase().contains("win")) {
+            jvmArgs += "-Dmizune.browserHost=" + layout.buildDirectory.file("browser-host/mizune-browser-host").get().asFile.path
+        }
         // dev: find a system libmpv (Homebrew on macOS). Packaged builds bundle their own.
         jvmArgs += listOf("-Djna.library.path=/opt/homebrew/lib:/usr/local/lib:/usr/lib")
         // so Main can name the window after its launcher, for the dock (setLinuxWindowClass)

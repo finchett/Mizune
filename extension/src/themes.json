@@ -1,0 +1,23 @@
+[
+  { "name": "Jade", "label": "Jade",
+    "light": { "primary": "#507D71", "onPrimary": "#F5F3EE", "secondary": "#8A4F35", "tertiary": "#2F7A62", "background": "#F5F3EE", "surface": "#F5F3EE", "surfaceVariant": "#EAE6DE", "onSurface": "#2A2722", "onSurfaceVariant": "#6A645A", "error": "#B3261E" },
+    "dark": { "primary": "#B9DFC8", "onPrimary": "#161513", "secondary": "#E0C3A3", "tertiary": "#8FCFB4", "background": "#161513", "surface": "#161513", "surfaceVariant": "#23211E", "onSurface": "#E6E2DA", "onSurfaceVariant": "#ADA79D", "error": "#F2B8B5" } },
+  { "name": "Sakura", "label": "Sakura",
+    "light": { "primary": "#B5456F", "onPrimary": "#FBF5F7", "secondary": "#A0604A", "tertiary": "#3E7B5E", "background": "#FBF5F7", "surface": "#FBF5F7", "surfaceVariant": "#F2E6EB", "onSurface": "#2E2226", "onSurfaceVariant": "#7A6670", "error": "#B3261E" },
+    "dark": { "primary": "#F4A6C0", "onPrimary": "#1A1417", "secondary": "#E8B4A0", "tertiary": "#B8E0C8", "background": "#1A1417", "surface": "#1A1417", "surfaceVariant": "#2A2025", "onSurface": "#E6E0E9", "onSurfaceVariant": "#D6C3CB", "error": "#F2B8B5" } },
+  { "name": "Nord", "label": "Nord",
+    "light": { "primary": "#5E81AC", "onPrimary": "#ECEFF4", "secondary": "#D08770", "tertiary": "#8FBCBB", "background": "#ECEFF4", "surface": "#ECEFF4", "surfaceVariant": "#E2E6EE", "onSurface": "#2E3440", "onSurfaceVariant": "#5B6476", "error": "#B3261E" },
+    "dark": { "primary": "#88C0D0", "onPrimary": "#2E3440", "secondary": "#D08770", "tertiary": "#A3BE8C", "background": "#2E3440", "surface": "#2E3440", "surfaceVariant": "#3B4252", "onSurface": "#ECEFF4", "onSurfaceVariant": "#C3CAD6", "error": "#F2B8B5" } },
+  { "name": "Paper", "label": "Paper",
+    "light": { "primary": "#3D6BB3", "onPrimary": "#F6F1E7", "secondary": "#A0453F", "tertiary": "#3E7B55", "background": "#F6F1E7", "surface": "#F6F1E7", "surfaceVariant": "#E9E1D1", "onSurface": "#2B2620", "onSurfaceVariant": "#6B6257", "error": "#B3261E" },
+    "dark": { "primary": "#8AB4F8", "onPrimary": "#111316", "secondary": "#F2B8B5", "tertiary": "#A8DAB5", "background": "#111316", "surface": "#111316", "surfaceVariant": "#1E2126", "onSurface": "#E6E0E9", "onSurfaceVariant": "#CAC4D0", "error": "#F2B8B5" } },
+  { "name": "Adwaita", "label": "Adwaita",
+    "light": { "primary": "#1C71D8", "onPrimary": "#FAFAFB", "secondary": "#E66100", "tertiary": "#26A269", "background": "#FAFAFB", "surface": "#FAFAFB", "surfaceVariant": "#EBEBED", "onSurface": "#333338", "onSurfaceVariant": "#707075", "error": "#B3261E" },
+    "dark": { "primary": "#78AEED", "onPrimary": "#222226", "secondary": "#FFA348", "tertiary": "#8FF0A4", "background": "#222226", "surface": "#222226", "surfaceVariant": "#2E2E32", "onSurface": "#FFFFFF", "onSurfaceVariant": "#ADADB1", "error": "#F2B8B5" } },
+  { "name": "Breeze", "label": "Breeze",
+    "light": { "primary": "#2980B9", "onPrimary": "#EFF0F1", "secondary": "#F67400", "tertiary": "#27AE60", "background": "#EFF0F1", "surface": "#EFF0F1", "surfaceVariant": "#E3E5E7", "onSurface": "#232629", "onSurfaceVariant": "#6E7880", "error": "#B3261E" },
+    "dark": { "primary": "#3DAEE9", "onPrimary": "#202326", "secondary": "#F67400", "tertiary": "#27AE60", "background": "#202326", "surface": "#202326", "surfaceVariant": "#292C30", "onSurface": "#FCFCFC", "onSurfaceVariant": "#A1A9B1", "error": "#F2B8B5" } },
+  { "name": "Oled", "label": "OLED Black",
+    "light": null,
+    "dark": { "primary": "#8AB4F8", "onPrimary": "#000000", "secondary": "#F2B8B5", "tertiary": "#A8DAB5", "background": "#000000", "surface": "#000000", "surfaceVariant": "#141414", "onSurface": "#E6E0E9", "onSurfaceVariant": "#CAC4D0", "error": "#F2B8B5" } }
+]

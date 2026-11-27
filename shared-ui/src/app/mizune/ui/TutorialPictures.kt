@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -433,8 +434,9 @@ private fun VideoGestures() {
 }
 
 /**
- * The little video: a play or pause sign in the middle and its progress along the bottom. With a
- * [scene] it shows a 4:3 picture, fitted with bars at the sides at 0 and filling the area at 1.
+ * The little video: the summer scene, standing still while it's paused, with a play or pause sign
+ * in the middle and its progress along the bottom. With a [scene] the 4:3 picture is fitted, with
+ * bars at the sides, at 0, and fills the area at 1; without one it fills it.
  */
 @Composable
 private fun VideoTile(
@@ -446,37 +448,24 @@ private fun VideoTile(
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val pop by animateFloatAsState(if (popped) 1f else 0f, tween(180), label = "pop")
+    val time by rememberSceneTime(paused = !playing)
     Box(
-        Modifier.size(184.dp, 98.dp).clip(RoundedCornerShape(12.dp))
-            .background(if (scene == null) Brush.linearGradient(listOf(Color(0xFF2E4A42), Color(0xFF16231F))) else Brush.linearGradient(listOf(Color.Black, Color.Black))),
+        Modifier.size(184.dp, 98.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        if (scene != null) {
-            Canvas(Modifier.fillMaxSize()) {
-                // fitted, the picture is as tall as the area; filling, as wide, its top and bottom cut off
-                val fit = Size(size.height * 4 / 3, size.height)
-                val full = Size(size.width, size.width * 3 / 4)
-                val w = fit.width + (full.width - fit.width) * scene
-                val h = fit.height + (full.height - fit.height) * scene
-                val left = (size.width - w) / 2
-                val top = (size.height - h) / 2
-                drawRect(Brush.verticalGradient(listOf(Color(0xFF4F8A79), Color(0xFF24463D)), startY = top, endY = top + h), Offset(left, top), Size(w, h))
-                drawCircle(Color(0xFFF2C46D).copy(alpha = 0.95f), radius = h * 0.11f, center = Offset(left + w * 0.72f, top + h * 0.32f))
-                drawPath(
-                    Path().apply {
-                        moveTo(left, top + h * 0.78f)
-                        quadraticTo(left + w * 0.35f, top + h * 0.56f, left + w * 0.62f, top + h * 0.74f)
-                        quadraticTo(left + w * 0.82f, top + h * 0.86f, left + w, top + h * 0.66f)
-                        lineTo(left + w, top + h)
-                        lineTo(left, top + h)
-                        close()
-                    },
-                    Color(0xFF16302A),
-                )
-            }
+        Canvas(Modifier.fillMaxSize()) {
+            // fitted, the picture is as tall as the area; filling, as wide, its top and bottom cut off
+            val fill = scene ?: 1f
+            val fit = size.height * 4 / 3
+            val w = fit + (size.width - fit) * fill
+            val left = (size.width - w) / 2
+            val top = (size.height - w * 3 / 4) / 2
+            // what moves on past the picture's edges stays out of the bars
+            clipRect(left, top, left + w, top + w * 3 / 4) { drawSummerScene(time, left, top, w) }
         }
         Canvas(Modifier.size(44.dp).scale(1f + 0.12f * pop)) {
-            drawCircle(Color.White.copy(alpha = 0.18f + 0.1f * pop))
+            // dark, so the sign shows up on the bright sky
+            drawCircle(Color.Black.copy(alpha = 0.32f + 0.1f * pop))
             val u = size.width / 44f
             if (playing) {
                 // pause: two bars

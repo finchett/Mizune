@@ -65,17 +65,8 @@ class CardWriter(private val anki: AnkiBackend) {
 
     fun add(word: MinedWord, target: CardTarget, media: CardMedia): Added {
         val format = target.format
-        val textFields = word.fields(format)
         // before spending time on media: a closed Anki, a duplicate or a missing deck fail here
-        anki.cannotAdd(target.deck, format.noteType, textFields)?.let { reason ->
-            if (AnkiBackend.DUPLICATE in reason || "duplicate" in reason) {
-                if (target.allowDuplicates) return@let
-                // remember which note it is, so it can be taken out again
-                val first = anki.fieldNames(format.noteType).firstOrNull()
-                throw Duplicate(first?.let { anki.findNotes(target.deck, it, textFields[it].orEmpty()).firstOrNull() })
-            }
-            throw AnkiException(friendly(reason, target))
-        }
+        check(word, target)
 
         val sources = format.fields.values.toSet()
         val base = word.mediaBaseName()
@@ -90,6 +81,21 @@ class CardWriter(private val anki: AnkiBackend) {
 
         val fields = word.copy(audioFile = audio, imageFile = image).fields(format)
         return Added(anki.addNote(target.deck, format.noteType, fields, target.tags, target.allowDuplicates), missing)
+    }
+
+    /** Throws [Duplicate] if Anki has the card already (unless that's allowed), or why it can't be added. */
+    fun check(word: MinedWord, target: CardTarget) {
+        val format = target.format
+        val textFields = word.fields(format)
+        anki.cannotAdd(target.deck, format.noteType, textFields)?.let { reason ->
+            if (AnkiBackend.DUPLICATE in reason || "duplicate" in reason) {
+                if (target.allowDuplicates) return
+                // remember which note it is, so it can be taken out again
+                val first = anki.fieldNames(format.noteType).firstOrNull()
+                throw Duplicate(first?.let { anki.findNotes(target.deck, it, textFields[it].orEmpty()).firstOrNull() })
+            }
+            throw AnkiException(friendly(reason, target))
+        }
     }
 
     fun remove(noteId: Long) = anki.deleteNotes(listOf(noteId))

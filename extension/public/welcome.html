@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to Mizune</title>
+<link rel="stylesheet" href="design.css">
+<style>
+  /* The app's onboarding (Onboarding.kt): a few steps, one at a time, each sliding in from the
+     side it's on, with dots for how far along it is and Back and Continue at the foot. */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+
+  .dots { display: flex; gap: 6px; align-items: center; padding: 28px 0 0; height: 36px; flex: none; }
+  .dots i { width: 6px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--onSurfaceVariant) 35%, transparent); transition: width 250ms var(--ease), background-color 250ms var(--ease); }
+  .dots i.on { width: 20px; background: var(--primary); }
+  .dots i.done { background: color-mix(in srgb, var(--primary) 55%, transparent); }
+
+  .stage { flex: 1; width: 100%; overflow-y: auto; display: flex; }
+  .step { margin: auto; width: 100%; max-width: 580px; padding: 24px 32px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .step.in-next { animation: in-next 340ms var(--ease) both; }
+  .step.in-back { animation: in-back 340ms var(--ease) both; }
+  @keyframes in-next { from { opacity: 0; transform: translateX(72px); } }
+  @keyframes in-back { from { opacity: 0; transform: translateX(-72px); } }
+  @media (prefers-reduced-motion: reduce) { .step.in-next, .step.in-back { animation: none; } }
+
+  .eyebrow { font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--primary); margin-bottom: 6px; }
+  h1 { margin: 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.01em; }
+  .body { margin: 12px 0 0; max-width: 500px; font-size: 16px; line-height: 23px; color: var(--onSurfaceVariant); }
+  .gap { height: 26px; flex: none; }
+  .gap.tight { height: 12px; }
+  .small-note { margin-top: 14px; font-size: 12px; line-height: 17px; color: var(--onSurfaceVariant); }
+  .link { color: var(--primary); text-decoration: none; font-size: 12px; line-height: 17px; padding: 4px 8px; border-radius: 6px; }
+  .link:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+
+  /* the app's girl, bobbing */
+  .mascot { width: 170px; height: 170px; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.28)); animation: bob 2.6s ease-in-out infinite; margin-bottom: 18px; }
+  .mascot.smaller { width: 112px; height: 112px; margin-bottom: 14px; }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  @media (prefers-reduced-motion: reduce) { .mascot { animation: none; } }
+
+  .big { margin-top: 30px; height: 46px; padding: 0 30px; border-radius: 23px; font-size: 15px; font-weight: 600; background: var(--primary); color: var(--background); transition: transform 150ms var(--ease), filter 150ms var(--ease); }
+  .big:hover { filter: brightness(1.06); }
+  .big:active { transform: scale(0.98); }
+
+  /* a card of rows, as the app's surfaceVariant boxes */
+  .box { width: 100%; text-align: left; border-radius: 14px; background: var(--card); overflow: hidden; }
+  .box .line { height: 1px; margin: 0 18px; background: var(--hairline); }
+  .box .row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; }
+  .box .row.pick { cursor: pointer; }
+  .box .row.pick:hover { background: color-mix(in srgb, var(--onSurface) 3%, transparent); }
+  .box .words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .box .title { font-size: 14px; line-height: 20px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .box .detail { font-size: 12px; line-height: 17px; color: var(--onSurfaceVariant); }
+  .badge { font-size: 10px; line-height: 14px; font-weight: 600; padding: 2px 7px; border-radius: 10px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: color-mix(in srgb, var(--onSurfaceVariant) 25%, transparent); }
+  .dot.on { background: var(--primary); }
+  .dot.off { background: color-mix(in srgb, var(--onSurfaceVariant) 50%, transparent); }
+  .dot.looking { animation: looking 1.2s var(--ease) infinite; }
+  @keyframes looking { 50% { opacity: 0.35; } }
+  .status { font-size: 12px; line-height: 17px; color: var(--onSurfaceVariant); white-space: nowrap; }
+  .status.done { color: var(--primary); }
+  .status.error { color: var(--error); }
+  .size { font-size: 12px; color: var(--onSurfaceVariant); white-space: nowrap; }
+  .check { width: 22px; height: 22px; flex: none; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--onSurfaceVariant) 45%, transparent); display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--background); transition: background-color 150ms var(--ease), border-color 150ms var(--ease); }
+  .check.on { background: var(--primary); border-color: var(--primary); }
+  .bar { width: 110px; display: flex; flex-direction: column; gap: 4px; }
+  .bar i { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--primary) 15%, transparent); overflow: hidden; }
+  .bar i b { display: block; height: 100%; width: 0; background: var(--primary); transition: width 200ms linear; }
+  .box select { width: 220px; font: inherit; font-size: 12px; line-height: 17px; color: var(--onSurface); padding: 5px 8px; border-radius: 8px; background: var(--control); border: 1px solid var(--controlLine); }
+
+  /* the languages to peek in, as tiles */
+  .langs { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .lang { height: 54px; padding: 0 10px; border-radius: 12px; background: var(--card); border: 1.5px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; }
+  .lang:hover { background: color-mix(in srgb, var(--onSurface) 4%, var(--card)); }
+  .lang.on { background: color-mix(in srgb, var(--primary) 12%, transparent); border-color: var(--primary); }
+  .lang b { font-size: 14px; line-height: 20px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .lang.on b { color: var(--primary); }
+  .lang span { font-size: 12px; line-height: 17px; color: var(--onSurfaceVariant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .lang.wide { grid-column: 1 / -1; margin-top: 4px; }
+  .theme { width: 100%; border-radius: 14px; background: var(--card); }
+
+  /* the toolbar, with the extensions' button and Mizune pinned beside it */
+  .toolbar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 10px; background: color-mix(in srgb, var(--onSurface) 6%, transparent); flex: none; }
+  .toolbar .address { width: 54px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--onSurface) 12%, transparent); margin-right: 6px; }
+  .toolbar .button { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--onSurfaceVariant); }
+  .toolbar .button.mizune img { width: 16px; height: 16px; }
+  .toolbar .button.mizune { background: color-mix(in srgb, var(--primary) 18%, transparent); box-shadow: 0 0 0 1.5px var(--primary); }
+  .toolbar svg { width: 15px; height: 15px; }
+  .tips { display: flex; flex-direction: column; gap: 10px; padding: 14px 18px; }
+  .tip { display: flex; align-items: center; gap: 12px; font-size: 14px; line-height: 20px; }
+  .tip .caps { width: 64px; display: flex; gap: 4px; flex: none; }
+  .sites { width: 100%; margin-top: 12px; }
+  .step > .site-tiles { width: 100%; }
+
+  .footer { flex: none; width: 100%; max-width: 644px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px 28px; }
+  .footer .back { font-size: 14px; padding: 9px 14px; border-radius: 10px; color: var(--onSurfaceVariant); }
+  .footer .back:hover { color: var(--onSurface); background: color-mix(in srgb, var(--onSurface) 6%, transparent); }
+  .footer .next { height: 40px; padding: 0 22px; border-radius: 20px; font-size: 14px; font-weight: 600; background: var(--primary); color: var(--background); }
+  .footer .next:hover { filter: brightness(1.06); }
+
+  canvas.confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="dots" id="dots"></div>
+<main class="stage"><div class="step" id="step"></div></main>
+<footer class="footer" id="footer" hidden>
+  <button class="back" id="back">Back</button>
+  <button class="next" id="next">Continue</button>
+</footer>
+<script src="welcome.js"></script>
+</body>
+</html>

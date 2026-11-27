@@ -1,0 +1,115 @@
+{
+  "manifest_version": 3,
+  "name": "Mizune",
+  "description": "Look words up in Japanese subtitles and add them to Anki, on Netflix, Crunchyroll and other sites. Works with the Mizune app, or on its own.",
+  "homepage_url": "https://mizune.app",
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "action": {
+    "default_title": "Mizune",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "commands": {
+    "toggle": {
+      "suggested_key": {
+        "default": "Alt+Shift+M"
+      },
+      "description": "Turn Mizune on or off for this tab"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "scripting",
+    "storage",
+    "unlimitedStorage",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://*.netflix.com/*",
+    "*://*.nflxvideo.net/*",
+    "*://*.crunchyroll.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "optional_host_permissions": [
+    "https://github.com/*",
+    "https://*.githubusercontent.com/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.crunchyroll.com/*"
+      ],
+      "js": [
+        "page.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.crunchyroll.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "chrome": {
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3/iyuP8l0PMn3uaQLni97+Uyffv5w6Mz2I0p5JxKAlW3OO7SjEF6FXOkRBfykej9oFq5QBmoA86JMDZLlaYFV5puyBPSf4lyDhBl/MzIQ7SrxQXmzEkh78sKrV1hTBRby3qfjQWiaMxqI1yrcRufMqgx0WQaAkDauLGFkR7jE4TaYwEJFxqXg9wYR8fUZh00iE3o5gqVCa+hInt3PrO6VKS82/ISgrYIu3oJ4M9j3jgR1I+lYPsWJg39fW7Ugl6mxHZ55Z8I/6u7BpiFS8uB78XaZSzYnZHGC1/wDRmYrKl/7oLJQ8L5n9r+WYZaJAVjgZzG3KyDTSWMC9Sg4dkyJwIDAQAB",
+    "minimum_chrome_version": "116",
+    "sandbox": {
+      "pages": [
+        "card.html"
+      ]
+    },
+    "background": {
+      "service_worker": "background.js"
+    },
+    "permissions": [
+      "tabCapture",
+      "offscreen"
+    ]
+  },
+  "firefox": {
+    "background": {
+      "scripts": [
+        "background.js"
+      ]
+    },
+    "host_permissions": [
+      "https://github.com/*",
+      "https://*.githubusercontent.com/*"
+    ],
+    "browser_specific_settings": {
+      "gecko": {
+        "id": "extension@mizune.app",
+        "strict_min_version": "128.0",
+        "data_collection_permissions": {
+          "required": ["none"]
+        }
+      }
+    }
+  }
+}

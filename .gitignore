@@ -7,3 +7,6 @@ local.properties
 # prebuilt libmpv binaries are extracted from the mpv-android release APK (see docs/development.md)
 app/src/main/jniLibs/
 dist/
+# the browser extension's tools and builds
+extension/node_modules/
+extension/dist/

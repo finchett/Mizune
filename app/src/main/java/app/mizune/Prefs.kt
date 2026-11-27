@@ -215,9 +215,9 @@ class Prefs(context: Context) {
     /** Gives [noteType] a source for each of [fieldNames]: as saved where it still fits, otherwise suggested. */
     fun fillCardFormat(noteType: String, fieldNames: List<String>): CardFormat {
         val saved = cardFormat(noteType)
-        if (saved != null && saved.fields.keys == fieldNames.toSet()) return saved
-        val suggested = CardFormats.forNoteType(noteType, fieldNames).fields
-        return CardFormat(noteType, fieldNames.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }).also(::saveCardFormat)
+        val filled = CardFormats.fill(saved, noteType, fieldNames)
+        if (filled.fields != saved?.fields) saveCardFormat(filled)
+        return filled
     }
 
     /** Where new cards go, or an [AnkiException] saying what still has to be chosen. */

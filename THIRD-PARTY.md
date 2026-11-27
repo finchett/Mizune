@@ -39,3 +39,10 @@ their GPL parts. Everything else it bundles or downloads is listed here.
 - **Anime4K** shaders (bundled, desktop): MIT, © bloc97; the AutoDownscalePre ones are public
   domain. See `desktop/src/main/resources/anime4k/LICENSE`.
 - **Shizuku API** (optional, for the RedMagic shoulder triggers): Apache-2.0.
+
+## Trademarks
+
+The browser extension shows the Netflix, Crunchyroll and YouTube logos, unaltered, on its
+shortcuts to those sites, to say which site each one opens (`extension/public/sites/`). Netflix
+is a trademark of Netflix, Inc., Crunchyroll of Crunchyroll, LLC, and YouTube of Google LLC.
+Mizune isn't made, endorsed or sponsored by any of them.

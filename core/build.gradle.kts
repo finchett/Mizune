@@ -14,6 +14,9 @@ kotlin {
         browser { testTask { enabled = false } }
         nodejs()
         binaries.library()
+        // the extension's build imports it (extension/build.mjs), types and all
+        useEsModules()
+        generateTypeScriptDefinitions()
     }
 
     sourceSets {
@@ -26,6 +29,10 @@ kotlin {
         jsMain.dependencies {
             // dictionary zips, read in the extension's worker
             implementation(npm("fflate", "0.8.3"))
+        }
+        jsTest.dependencies {
+            // the extension's SQLite, for the engine's tests (the extension brings its own)
+            implementation(npm("@sqlite.org/sqlite-wasm", "3.54.1-build1"))
         }
         jvmMain.dependencies {
             // Android ships org.json in the platform; the desktop app supplies the same API from Maven.

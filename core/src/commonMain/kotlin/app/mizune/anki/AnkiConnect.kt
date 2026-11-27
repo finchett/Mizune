@@ -14,6 +14,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlin.io.encoding.Base64
 
+/** One of a note type's cards: its name ("Card 1"), and its front and back templates. */
+data class CardTemplate(val name: String, val front: String, val back: String)
+
 open class AnkiException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
@@ -38,12 +41,32 @@ class AnkiConnect(
 
     fun version(): Int = (call("version").long() ?: 0L).toInt()
 
+    /**
+     * Asks Anki to let this origin in. A browser extension's requests carry its own origin,
+     * which AnkiConnect refuses until the user allows it in the dialog this opens in Anki.
+     * True once it's allowed.
+     */
+    fun requestPermission(): Boolean = (call("requestPermission") as? JsonObject)?.string("permission") == "granted"
+
     override fun decks(): List<String> = strings(call("deckNames"))
 
     override fun noteTypes(): List<String> = strings(call("modelNames"))
 
     override fun fieldNames(noteType: String): List<String> =
         strings(call("modelFieldNames", jsonOf("modelName" to noteType)))
+
+    /** [noteType]'s cards, each with its front and back template, in Anki's order. */
+    fun templates(noteType: String): List<CardTemplate> {
+        val cards = call("modelTemplates", jsonOf("modelName" to noteType)) as? JsonObject ?: return emptyList()
+        return cards.entries.map { (name, sides) ->
+            val both = sides as? JsonObject
+            CardTemplate(name, both?.string("Front").orEmpty(), both?.string("Back").orEmpty())
+        }
+    }
+
+    /** [noteType]'s card CSS. */
+    fun styling(noteType: String): String =
+        (call("modelStyling", jsonOf("modelName" to noteType)) as? JsonObject)?.string("css").orEmpty()
 
     /** Saves a file into Anki's media folder and returns the name Anki stored it under. */
     override fun storeMedia(name: String, data: ByteArray): String =

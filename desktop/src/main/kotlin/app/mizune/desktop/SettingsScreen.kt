@@ -3,6 +3,7 @@ package app.mizune.desktop
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +13,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -41,6 +43,8 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -111,6 +115,56 @@ enum class SettingsPane(val label: String) {
 
 private val SidebarWidth = 216.dp
 private val ContentWidth = 620.dp
+
+/**
+ * The settings screen: the sidebar, the open pane, and beside it, while the window has room, a
+ * preview of what the pane's settings do (SettingsPreview.kt).
+ */
+@Composable
+fun SettingsChrome(
+    app: DesktopApp,
+    pane: SettingsPane,
+    onPane: (SettingsPane) -> Unit,
+    onBack: () -> Unit,
+    onRestartToUpdate: () -> Unit = {},
+) {
+    val facts = remember { PaneFacts() }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val beside = maxWidth >= PreviewWindowWidth && hasPreview(pane)
+        // the settings keep to their own width, and the preview takes the rest
+        val previewWidth = maxOf(PreviewMinWidth, maxWidth - SidebarWidth - PaneWithPreview)
+        Chrome(
+            header = { SettingsHeader(pane) },
+            body = { SettingsBody(app, pane, onRestartToUpdate, facts, previewBeside = beside) },
+            leading = { SettingsSidebar(app, pane, onPane = onPane, onBack = onBack) },
+            trailing = if (beside) {
+                { SettingsPreview(app, pane, facts, Modifier.width(previewWidth)) }
+            } else null,
+        )
+    }
+}
+
+/** What a pane has found out that its preview shows too, so the two don't ask twice. */
+class PaneFacts {
+    /** The dictionaries, in their order, once the Dictionaries pane has read them. */
+    var dictionaries by mutableStateOf<List<DictionaryInfo>?>(null)
+    /** Whether AnkiConnect answered: null while it's being asked, or while cards are off. */
+    var ankiConnected by mutableStateOf<Boolean?>(null)
+    /** The chosen note type's fields, once AnkiConnect has said what they are. */
+    var ankiFields by mutableStateOf<List<String>>(emptyList())
+    /** The Keyboard pane's row the pointer is on (its action), for the preview to light its keys. */
+    var pointedRow by mutableStateOf<String?>(null)
+    /** The rows the preview's pointed-at key does, for the pane to pick out. */
+    var litRows by mutableStateOf<Set<String>>(emptySet())
+}
+
+internal val LocalPaneFacts = staticCompositionLocalOf { PaneFacts() }
+
+/** The window as wide as this, or wider, has the preview beside the settings. */
+internal val PreviewWindowWidth = 1180.dp
+private val PreviewMinWidth = 360.dp
+/** The open pane's width while the preview's beside it: its own, and the preview takes the rest. */
+private val PaneWithPreview = ContentWidth
 
 /** Header content for the settings screen: the open pane's name, over the content it titles. */
 @Composable
@@ -228,7 +282,14 @@ private fun UpdateLine(update: UpdateState) {
 
 /** The open pane: its settings as cards of rows, a section heading above each card. */
 @Composable
-fun SettingsBody(app: DesktopApp, pane: SettingsPane, onRestartToUpdate: () -> Unit = {}) {
+fun SettingsBody(
+    app: DesktopApp,
+    pane: SettingsPane,
+    onRestartToUpdate: () -> Unit = {},
+    facts: PaneFacts = remember { PaneFacts() },
+    /** Whether the preview's beside the pane, which then shows what the pane would itself. */
+    previewBeside: Boolean = false,
+) = CompositionLocalProvider(LocalPaneFacts provides facts, LocalPreviewBeside provides previewBeside) {
     Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(
             Modifier.widthIn(max = ContentWidth).padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 40.dp),
@@ -246,6 +307,8 @@ fun SettingsBody(app: DesktopApp, pane: SettingsPane, onRestartToUpdate: () -> U
         }
     }
 }
+
+private val LocalPreviewBeside = staticCompositionLocalOf { false }
 
 @Composable
 private fun NavItem(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -358,6 +421,11 @@ private fun GeneralPane(app: DesktopApp) {
             }
         }
     }
+    Section("Browser") {
+        Card {
+            BrowserExtensionRow(settings)
+        }
+    }
     Section("Updates") {
         Card {
             if (app.updater.updatesItself) {
@@ -389,6 +457,34 @@ private fun GeneralPane(app: DesktopApp) {
     }
 }
 
+/** Lets the browser extension start Mizune, and says which browsers know about it. */
+@Composable
+private fun BrowserExtensionRow(settings: Settings) {
+    val registration = remember { BrowserRegistration() }
+    val scope = rememberCoroutineScope()
+    var browsers by remember { mutableStateOf<List<String>?>(null) }
+    // registering again each time is cheap, and catches a browser installed since
+    LaunchedEffect(settings.browserExtension) {
+        browsers = if (settings.browserExtension) withContext(Dispatchers.IO) { registration.register() } else null
+    }
+    fun change(on: Boolean) {
+        settings.updateBrowserExtension(on)
+        if (!on) scope.launch(Dispatchers.IO) { registration.unregister() }
+    }
+    val note = when {
+        !registration.available -> "Only the installed app can be started by a browser"
+        settings.browserExtension && browsers?.isNotEmpty() == true -> "Set up for ${browsers!!.joinToString(", ")}"
+        else -> null
+    }
+    Box(Modifier.clickable(enabled = registration.available) { change(!settings.browserExtension) }) {
+        SettingRow(
+            "Browser extension",
+            "Lets Mizune's extension for Chrome and Firefox look words up and add cards on Netflix, Crunchyroll and other sites. Mizune doesn't need to be open.",
+            note = note,
+        ) { Toggle(settings.browserExtension && registration.available) { if (registration.available) change(it) } }
+    }
+}
+
 /** Said wherever a peek language is picked: the subtitles are the user's own, and which can't be read. */
 fun peekLanguageNote(code: String): String {
     val name = SubtitleFiles.language(code)?.name ?: code
@@ -410,8 +506,10 @@ private fun DictionariesPane(app: DesktopApp) {
     var importing by remember { mutableStateOf<String?>(null) }
     var importError by remember { mutableStateOf<String?>(null) }
     val setupStatus by app.setupStatus.collectAsState()
+    val facts = LocalPaneFacts.current
     LaunchedEffect(refreshCount, setupStatus) {
         dictionaries = withContext(Dispatchers.IO) { app.database.dictionaries() }
+        facts.dictionaries = dictionaries
     }
     fun change(action: () -> Unit) = scope.launch {
         withContext(Dispatchers.IO) { action() }
@@ -616,8 +714,9 @@ private fun AppearancePane(app: DesktopApp) {
                     modifier = Modifier.width(44.dp),
                 )
             }
-            // the size as it will look over a video, rather than as a number
-            Box(
+            // the size as it will look over a video, rather than as a number, unless the preview's
+            // beside the pane, showing it in the player
+            if (!LocalPreviewBeside.current) Box(
                 Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp).fillMaxWidth().height(96.dp)
                     .clip(RoundedCornerShape(7.dp)).background(Color(0xFF16181C))
                     .border(1.dp, MaterialTheme.colorScheme.hairline, RoundedCornerShape(7.dp)),
@@ -651,7 +750,9 @@ private fun AnkiPane(app: DesktopApp) {
     val settings = app.settings
     var refresh by remember { mutableIntStateOf(0) }
     var collection by remember { mutableStateOf<Result<AnkiCollection>?>(null) }
+    val facts = LocalPaneFacts.current
     LaunchedEffect(settings.ankiEnabled, settings.ankiUrl, refresh) {
+        facts.ankiConnected = null
         if (!settings.ankiEnabled) return@LaunchedEffect
         collection = null
         val result = withContext(Dispatchers.IO) {
@@ -662,6 +763,7 @@ private fun AnkiPane(app: DesktopApp) {
             }
         }
         collection = result
+        facts.ankiConnected = result.isSuccess
         // first time: the note type of a format known field by field, if the collection has one
         val noteTypes = result.getOrNull()?.noteTypes.orEmpty()
         if (settings.ankiNoteType == null) {
@@ -682,6 +784,7 @@ private fun AnkiPane(app: DesktopApp) {
         settings.fillCardFormat(noteType, names)
         fields = names
     }
+    LaunchedEffect(fields) { facts.ankiFields = fields }
 
     // the address is saved once typing pauses, so each keystroke isn't a connection attempt
     var typed by remember { mutableStateOf<String?>(null) }
@@ -765,7 +868,7 @@ private fun AnkiPane(app: DesktopApp) {
     val noteType = settings.ankiNoteType
     val format = settings.ankiFormat
     if (noteType != null && format != null && fields.isNotEmpty()) {
-        val preset = CardFormats.presets.any { it.fields.keys == fields.toSet() }
+        val preset = CardFormats.known(fields) != null
         Section("Fields", note = if (preset) "A known format: set up already" else "Guessed from the field names") {
             Card {
                 fields.forEachIndexed { index, field ->
@@ -941,8 +1044,18 @@ internal fun PlayerKeyList(settings: Settings) {
 /** A row of the keyboard pane: what it does, a quieter [note], and its keys at the end. */
 @Composable
 private fun KeyRow(action: String, note: String?, highlight: Boolean = false, keys: @Composable () -> Unit) {
+    val facts = LocalPaneFacts.current
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    LaunchedEffect(hovered) {
+        if (hovered) facts.pointedRow = action else if (facts.pointedRow == action) facts.pointedRow = null
+    }
+    val lit by animateColorAsState(
+        if (action in facts.litRows) MaterialTheme.colorScheme.primary.copy(alpha = 0.09f) else Color.Transparent,
+        tween(150), label = "lit",
+    )
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
+        Modifier.fillMaxWidth().background(lit).hoverable(interaction).padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1055,9 +1168,9 @@ private val MODIFIER_KEYS = setOf(
 )
 
 /** A key that can't be changed, and what it does. */
-private class FixedKey(val caps: List<String>, val action: String, val note: String? = null)
+internal class FixedKey(val caps: List<String>, val action: String, val note: String? = null)
 
-private val FIXED_KEYS = listOf(
+internal val FIXED_KEYS = listOf(
     FixedKey(listOf("Esc"), "Close a lookup over the video, leave full screen, then back to the library"),
     FixedKey(listOf(if (isMac) "⌘" else "Ctrl", "1–6"), "Anime4K mode A, B, C, A+A, B+B, C+A", if (isMac) "or Ctrl; turns it on" else "turns it on"),
     FixedKey(listOf(if (isMac) "⌘" else "Ctrl", "0"), "Anime4K off", if (isMac) "or Ctrl" else null),
@@ -1067,20 +1180,20 @@ private val FIXED_KEYS = listOf(
 // --- pieces ---------------------------------------------------------------------------------
 
 /** A card is a quiet surface, a step off the page in the theme's own tint. */
-private val ColorScheme.card: Color
+internal val ColorScheme.card: Color
     get() = surfaceVariant.copy(alpha = 0.7f).compositeOver(background)
 
 /** The background of a control that takes input, a step further again. */
-private val ColorScheme.control: Color
+internal val ColorScheme.control: Color
     get() = if (background.luminance() > 0.5f) Color.White.copy(alpha = 0.75f).compositeOver(card)
     else onSurface.copy(alpha = 0.07f).compositeOver(card)
 
 /** The edge of a control. */
-private val ColorScheme.controlLine: Color get() = onSurface.copy(alpha = 0.14f)
+internal val ColorScheme.controlLine: Color get() = onSurface.copy(alpha = 0.14f)
 
 /** The line around a card or between its rows: present, but only just. */
 val ColorScheme.hairline: Color get() = onSurface.copy(alpha = 0.11f)
-private val ColorScheme.rowLine: Color get() = onSurface.copy(alpha = 0.07f)
+internal val ColorScheme.rowLine: Color get() = onSurface.copy(alpha = 0.07f)
 
 private fun Color.compositeOver(background: Color): Color {
     val a = alpha

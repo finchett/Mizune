@@ -111,6 +111,9 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     /** A new version is shown in the library's header, not only in Settings. */
     var updatesInHeader by mutableStateOf(prefs.getBoolean("updates_in_header", true))
         private set
+    /** Chrome and Firefox may start Mizune for the browser extension ([BrowserRegistration]). */
+    var browserExtension by mutableStateOf(prefs.getBoolean("browser_extension", false))
+        private set
     /**
      * The study panel put away (Full): the video takes the window, the line goes over it, and the
      * controls keep out of sight until the pointer reaches an edge.
@@ -200,9 +203,8 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     /** Gives [noteType] a source for each of [fieldNames]: as saved where it still fits, otherwise suggested. */
     fun fillCardFormat(noteType: String, fieldNames: List<String>) {
         val saved = cardFormat(noteType)
-        if (saved != null && saved.fields.keys == fieldNames.toSet()) return
-        val suggested = CardFormats.forNoteType(noteType, fieldNames).fields
-        saveCardFormat(CardFormat(noteType, fieldNames.associateWith { saved?.fields?.get(it) ?: suggested.getValue(it) }))
+        val filled = CardFormats.fill(saved, noteType, fieldNames)
+        if (filled.fields != saved?.fields) saveCardFormat(filled)
     }
 
     fun updateAnkiEnabled(value: Boolean) { ankiEnabled = value; prefs.putBoolean("anki_enabled", value) }
@@ -230,6 +232,7 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun updateProgressChecks(value: Boolean) { progressChecks = value; prefs.putBoolean("progress_checks", value) }
     fun updateVideoProgress(value: Boolean) { videoProgress = value; prefs.putBoolean("video_progress", value) }
     fun updateFolderProgress(value: Boolean) { folderProgress = value; prefs.putBoolean("folder_progress", value) }
+    fun updateBrowserExtension(value: Boolean) { browserExtension = value; prefs.putBoolean("browser_extension", value) }
     fun updateAutoUpdate(value: Boolean) { autoUpdate = value; prefs.putBoolean("auto_update", value) }
     fun updateUpdatesInHeader(value: Boolean) { updatesInHeader = value; prefs.putBoolean("updates_in_header", value) }
 
@@ -278,6 +281,22 @@ class Settings(node: String = System.getProperty("mizune.prefs") ?: "app/mizune"
     fun updateKeyMap(value: KeyMap) {
         keyMap = value
         if (value.isDefault) prefs.remove("key_map") else prefs.put("key_map", value.toJson())
+    }
+
+    /**
+     * The settings the browser extension shares (BrowserHost.update), read again: the extension
+     * writes them from the host's own process, so a running app has the old ones until this.
+     */
+    fun reloadShared() {
+        runCatching { prefs.sync() }
+        ThemeFamily.entries.firstOrNull { it.name == prefs.get("theme_family", null) }?.let { themeFamily = it }
+        ThemeMode.entries.firstOrNull { it.name == prefs.get("theme_mode", null) }?.let { themeMode = it }
+        subtitleSize = prefs.getFloat("subtitle_size", subtitleSize)
+        autoPause = prefs.getBoolean("auto_pause", autoPause)
+        pauseOnLookup = prefs.getBoolean("pause_on_lookup", pauseOnLookup)
+        copyLines = prefs.getBoolean("copy_lines", copyLines)
+        peekLanguage = prefs.get("peek_language", "en").ifEmpty { null }
+        keyMap = prefs.get("key_map", null)?.let { KeyMap.fromJson(it).map } ?: KeyMap.DEFAULT
     }
 
     /** Where the window was last left (WindowPlace); none before it's first opened. */

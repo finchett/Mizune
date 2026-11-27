@@ -64,11 +64,15 @@ private sealed interface Screen {
 
 fun main(args: Array<String>) {
     if (args.firstOrNull() == "--bench") return bench(args[1], args.getOrNull(2)?.toInt() ?: 1920)
+    // started by Chrome or Firefox for the browser extension: no window, just messages
+    if (BrowserHost.isLaunchedByBrowser(args) || args.firstOrNull() == "--browser-host") return BrowserHost.main()
     val app = DesktopApp()
     MacTrafficLights.probe()
     if (isLinux) setLinuxWindowClass()
     Thread({ app.prepareDictionaries() }, "dictionary-setup").apply { isDaemon = true }.start()
     app.updater.start()
+    // the app may have moved or updated since: point the browsers at this copy
+    if (app.settings.browserExtension) Thread({ runCatching { BrowserRegistration().register() } }, "browser-registration").apply { isDaemon = true }.start()
     app.startUsageStats()
     // without them old subtitle files come out as junk; CI fails on this line
     SubtitleEncoding.missing().takeIf { it.isNotEmpty() }?.let { System.err.println("subtitles: missing code pages ${it.joinToString()}") }
@@ -248,6 +252,14 @@ fun main(args: Array<String>) {
                     MacTrafficLights.apply(lightsVisible, lightCenter, title)
                 }
             }
+            // the browser extension may have changed the settings it shares while the app was behind
+            DisposableEffect(window) {
+                val listener = object : java.awt.event.WindowAdapter() {
+                    override fun windowGainedFocus(e: java.awt.event.WindowEvent?) = app.settings.reloadShared()
+                }
+                window.addWindowFocusListener(listener)
+                onDispose { window.removeWindowFocusListener(listener) }
+            }
             val fullscreen = isFullscreen()
             SideEffect { keys.fullscreen = fullscreen }
             val ownWindow = remember { WindowFrame(window, windowState) }
@@ -401,14 +413,8 @@ private fun Browse(
 
     Crossfade(targetState = screen is Screen.Settings, animationSpec = fade, label = "settings") { settings ->
         if (settings) {
-            Chrome(
-                header = { SettingsHeader(pane) },
-                body = { SettingsBody(app, pane, onRestartToUpdate) },
-                // the panes live in a sidebar that runs the whole height, under the lights
-                leading = {
-                    SettingsSidebar(app, pane, onPane = { pane = it }, onBack = { navigate(library) })
-                },
-            )
+            // the panes live in a sidebar that runs the whole height, under the lights
+            SettingsChrome(app, pane, onPane = { pane = it }, onBack = { navigate(library) }, onRestartToUpdate)
         } else {
             // the library's header and its grid are one surface, the way a Mac window's toolbar is
             Chrome(

@@ -2,6 +2,7 @@ package app.mizune.desktop
 
 import app.mizune.anki.AnkiConnect
 import app.mizune.dictionary.DictionaryCatalog
+import app.mizune.dictionary.download
 import app.mizune.dictionary.DictionaryDatabase
 import app.mizune.dictionary.DictionaryLookup
 import app.mizune.dictionary.JdbcSql
