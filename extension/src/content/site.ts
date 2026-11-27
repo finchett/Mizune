@@ -239,7 +239,8 @@ class NetflixSite extends ElementSite {
     // as the page under the pointer changes, depending how it's cut: beside the panel, when
     // object-fit cuts it to the card; on its own, when the window's edges do. So beside the panel
     // it isn't cut: it's made as big as covers the card, and what's past the card is under the
-    // panel, the gutter round the card, or out of the window. On its own, object-fit cuts it.
+    // panel, the gutter round the card, or out of the window. On its own, object-fit cuts it, and
+    // in a window (not full screen) Firefox still shifts it at some sizes, for reasons not yet found.
     const card = new DOMRect(Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height));
     let target = card, objectFit: string | null = null;
     if (this.filling && besidePanel && video.videoWidth && video.videoHeight) {
@@ -423,6 +424,8 @@ class NetflixControls implements OwnControls {
 
   hide(hide: boolean) {
     this.hiding(hide ? NETFLIX_HIDDEN : null);
+    // Netflix's own ways to full screen take the whole page, Mizune's overlay and panel with it (page.ts)
+    window.postMessage({ source: CONTENT, kind: 'wholePageFullscreen', on: hide }, '*');
   }
 
   back() {

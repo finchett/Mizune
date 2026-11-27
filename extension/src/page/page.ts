@@ -80,7 +80,27 @@ function language(code: string | undefined): string | null {
  * So the files are picked up as the player downloads them, and to get Japanese and English the
  * player is switched to each for a moment (see [fetchSubtitles]), then back.
  */
+/**
+ * While Mizune's on, Netflix's own ways to full screen (a double click on the video, F) take the
+ * whole page there, as Mizune's button does, rather than Netflix's player: the browser holds what
+ * goes full screen to the whole screen, over the room the player was making for the study panel,
+ * and the picture and what Netflix centres on it (its play and pause) would come apart.
+ */
+function wholePageFullscreen() {
+  let on = false;
+  const request = Element.prototype.requestFullscreen;
+  Element.prototype.requestFullscreen = function (this: Element, options?: FullscreenOptions) {
+    const page = document.documentElement;
+    if (!on || this === page) return request.call(this, options);
+    // Netflix asking again, as it would were it its player there: it's a toggle, so out
+    if (document.fullscreenElement === page) return document.exitFullscreen();
+    return request.call(page, options);
+  };
+  return (value: boolean) => (on = value);
+}
+
 function netflix() {
+  const fullscreenWhole = wholePageFullscreen();
   /** The track the player was switched to, while [fetchTrack] waits for its file. */
   let switchedTo: { language: string; captions: boolean; label: string; id: string } | null = null;
   /** videoId/language, and videoId/track ID: what's been found already. */
@@ -252,6 +272,7 @@ function netflix() {
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.data?.source !== CONTENT) return;
     const { kind, seconds, level, muted } = event.data;
+    if (kind === 'wholePageFullscreen') return void fullscreenWhole(!!event.data.on);
     if (kind === 'subtitles') {
       if (Array.isArray(event.data.languages)) wanted = event.data.languages;
       fetchSubtitles().catch(() => {});
