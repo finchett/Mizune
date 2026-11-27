@@ -1,4 +1,4 @@
-// The toolbar's popup: what Mizune's doing in this tab (the line it's on, or what to do here
+// The toolbar's popup: what Mizune's doing in this tab (the video it's on, or what to do here
 // instead), and what's still to set up while something is. Everything else is in the settings,
 // behind the cog, or in the player's own ⚙ menu.
 import { ICONS } from './content/controls';
@@ -75,7 +75,8 @@ function drawTab() {
   const bare = view.kind === 'none' || view.kind === 'browse' || view.kind === 'disabled';
   const sites = chosenSites(settings.sites);
   $('tab').hidden = bare && !sites.length;
-  screen.hidden = bare;
+  // while it plays, the video has the line already: the card's only what's on and how far in
+  screen.hidden = bare || view.kind === 'playing';
   eyebrow.replaceChildren(...(on ? [h('i', 'live')] : []), bare ? 'Watch on' : site ?? 'This tab');
   switchBox.replaceChildren();
   if (view.kind === 'playing' || view.kind === 'looking' || view.kind === 'off' || view.kind === 'page') {
@@ -93,16 +94,6 @@ function drawTab() {
       key = 'loading';
       content = () => message('', '');
       break;
-    case 'playing': {
-      const line = view.status.line ?? '';
-      key = `line:${line}`;
-      content = () => {
-        const el = h('div', 'line', line);
-        el.lang = 'ja';
-        return el;
-      };
-      break;
-    }
     case 'looking':
       key = 'looking';
       content = () => message('Looking for Japanese subtitles', 'They come up as the site sends them', true);
@@ -118,27 +109,13 @@ function drawTab() {
       content = () => message('There’s a video here', 'Turn Mizune on, then drop a subtitle file on the video');
       break;
     default:
-      // not shown
+      // not shown (playing, or bare)
       key = 'bare';
       content = () => message('', '');
   }
   if (key !== shownKey) {
     shownKey = key;
     swap(screen, content());
-  }
-
-  // how far through its lines the video is
-  let progress = screen.querySelector<HTMLElement>('.progress i');
-  if (view.kind === 'playing' && view.status.lines) {
-    if (!progress) {
-      const bar = h('div', 'progress');
-      progress = h('i');
-      bar.append(progress);
-      screen.append(bar);
-    }
-    progress.style.width = `${((view.status.at + 1) / view.status.lines) * 100}%`;
-  } else {
-    screen.querySelector('.progress')?.remove();
   }
 
   if (view.kind === 'playing' || view.kind === 'looking' || view.kind === 'off') {
@@ -174,7 +151,7 @@ function message(title: string, detail: string, waiting = false): HTMLElement {
 
 /** [next] on the screen in place of what's there: the old fading up and out, the new rising in. */
 function swap(screen: HTMLElement, next: HTMLElement) {
-  for (const old of screen.querySelectorAll<HTMLElement>(':scope > :not(.progress)')) {
+  for (const old of screen.querySelectorAll<HTMLElement>(':scope > *')) {
     if (old.classList.contains('gone')) continue;
     old.classList.add('gone');
     setTimeout(() => old.remove(), 280);
@@ -199,7 +176,7 @@ async function refresh() {
   view = await look();
   drawTab();
   clearTimeout(timer);
-  // the line as it changes, while there's one to follow
+  // the line count as it changes, while there's one to follow
   timer = window.setTimeout(refresh, view.kind === 'playing' || view.kind === 'looking' ? 400 : 1500);
 }
 

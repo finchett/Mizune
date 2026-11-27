@@ -317,7 +317,6 @@ class Session {
   /** What it's doing, for the toolbar's popup. */
   status(): TabStatus {
     const cues = this.primary?.cues;
-    const cue = cues?.[Math.max(0, this.lineIndex)];
     return {
       type: 'status',
       site: this.site.kind,
@@ -326,7 +325,6 @@ class Session {
       stoppedByUser: this.stoppedByUser,
       title: this.title ?? this.site.title(),
       lines: cues?.length || null,
-      line: this.on && cue ? cue.text : null,
       at: Math.max(0, this.lineIndex),
     };
   }

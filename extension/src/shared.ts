@@ -379,8 +379,6 @@ export interface TabStatus {
   title: string | null;
   /** How many lines the subtitles have; null while there are none yet. */
   lines: number | null;
-  /** The line on screen, or the last one. */
-  line: string | null;
   /** Which line that is, from 0. */
   at: number;
 }
