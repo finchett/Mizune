@@ -1,5 +1,5 @@
 // What differs between sites: where the video is, what it's called, and how to move it.
-import { CONTENT, PAGE } from '../shared';
+import { CONTENT, isGecko, PAGE } from '../shared';
 
 export interface Site {
   kind: 'netflix' | 'crunchyroll' | 'other';
@@ -239,10 +239,14 @@ class NetflixSite extends ElementSite {
     // as the page under the pointer changes, depending how it's cut: beside the panel, when
     // object-fit cuts it to the card; on its own, when the window's edges do. So beside the panel
     // it isn't cut: it's made as big as covers the card, and what's past the card is under the
-    // panel, the gutter round the card, or out of the window. On its own, object-fit cuts it, and
-    // in a window (not full screen) Firefox still shifts it at some sizes, for reasons not yet found.
+    // panel, the gutter round the card, or out of the window. On its own, object-fit cuts it.
+    // And on its own in a window, Firefox still draws a cut picture a pixel over as other things
+    // in the window are drawn again, whichever way it's cut or sized: it puts the video on a layer
+    // of its own, or draws it in with the rest, by turns, and the two land a pixel apart. A filter
+    // keeps it drawn in with the rest, always; this one changes nothing that can be seen.
     const card = new DOMRect(Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height));
     let target = card, objectFit: string | null = null;
+    const filter = isGecko && this.filling ? 'brightness(1.0001)' : null;
     if (this.filling && besidePanel && video.videoWidth && video.videoHeight) {
       const scale = Math.max(card.width / video.videoWidth, card.height / video.videoHeight);
       const width = Math.round(video.videoWidth * scale), height = Math.round(video.videoHeight * scale);
@@ -253,10 +257,10 @@ class NetflixSite extends ElementSite {
     }
     for (let tries = 0; tries < 4; tries++) {
       const css = [(target.left - fit.ox) / fit.sx, (target.top - fit.oy) / fit.sy, target.width / fit.sx, target.height / fit.sy];
-      const set = [...css.map((n) => n.toFixed(2)), objectFit].join(' ');
+      const set = [...css.map((n) => n.toFixed(2)), objectFit, filter].join(' ');
       if (set !== held.set) {
         held.set = set;
-        const values = ['fixed', `${css[0]}px`, `${css[1]}px`, `${css[2]}px`, `${css[3]}px`, 'none', 'none', 'none', objectFit];
+        const values = ['fixed', `${css[0]}px`, `${css[1]}px`, `${css[2]}px`, `${css[3]}px`, 'none', 'none', 'none', objectFit, filter];
         PLACING.forEach((prop, i) => {
           const value = values[i];
           if (value) video.style.setProperty(prop, value, 'important');
@@ -380,7 +384,7 @@ class NetflixSite extends ElementSite {
 /** What's set on Netflix's video to hold its picture in the card. */
 // (and none of Netflix's centring, half the video's size back: half a pixel, when that's odd; and how
 // it fills the card, which placeVideo does itself)
-const PLACING = ['position', 'left', 'top', 'width', 'height', 'max-width', 'max-height', 'transform', 'object-fit'];
+const PLACING = ['position', 'left', 'top', 'width', 'height', 'max-width', 'max-height', 'transform', 'object-fit', 'filter'];
 
 /** What of Netflix's own is hidden while Mizune's controls are out: all of it. */
 // The player never scrolls; but come to from the catalogue, Netflix's page can keep the
