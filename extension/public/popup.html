@@ -12,6 +12,9 @@
   .rise { animation: rise 340ms var(--rise) both; animation-delay: calc(var(--i, 0) * 45ms); }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
   @media (prefers-reduced-motion: reduce) { .rise { animation: none; } }
+  /* till all of it's drawn (popup.ts) */
+  body.waiting > * { visibility: hidden; animation: none; }
+  html:has(body.waiting) { overflow: hidden; }
 
   /* Mizune, and what it looks words up with */
   .top { display: flex; align-items: center; gap: 12px; padding: 16px 14px 14px 16px; }
@@ -30,36 +33,23 @@
 
   .card { margin: 0 10px 10px; border-radius: 14px; background: var(--card); }
 
-  /* this tab: what's playing, or a little screen with what to do here instead */
+  /* this tab: what's playing, or what to do here instead */
   .tab { padding: 12px; }
   .tab .head { display: flex; align-items: center; gap: 8px; height: 20px; margin: 0 2px 10px; }
   .eyebrow { flex: 1; display: flex; align-items: center; gap: 7px; font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 1.2px; text-transform: uppercase; color: var(--onSurfaceVariant); }
   .live { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 50%, transparent); animation: live 2.4s var(--ease) infinite; }
   @keyframes live { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  /* what to do here: a quiet panel in the theme's own colours */
   .screen {
-    position: relative; height: 118px; transition: height 300ms var(--rise); border-radius: 10px; overflow: hidden; background: #16181C;
-    display: grid; place-items: center; text-align: center; isolation: isolate;
-    /* an edge of its own, for where the card around it is dark too */
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+    position: relative; height: 96px; border-radius: 10px; overflow: hidden; display: grid; place-items: center; text-align: center;
+    background: color-mix(in srgb, var(--onSurface) 4%, var(--card)); box-shadow: inset 0 0 0 1px var(--rowLine);
   }
-  /* the theme's colour, glowing up from the foot of the picture */
-  .screen::before {
-    content: ""; position: absolute; inset: 0; z-index: -1;
-    background: radial-gradient(120% 95% at 50% 125%, color-mix(in srgb, var(--primary) 30%, transparent), transparent 62%);
-    transition: opacity 400ms var(--ease);
-  }
-  .screen.dim::before { opacity: 0.35; }
-  /* nothing playing: a quiet panel in the theme's own colours, rather than a picture */
-  .screen.quiet { height: 96px; background: color-mix(in srgb, var(--onSurface) 4%, var(--card)); box-shadow: inset 0 0 0 1px var(--rowLine); transition: background-color 300ms var(--ease); }
-  .screen.quiet::before { opacity: 0; }
-  .screen.quiet .message b { color: var(--onSurface); }
-  .screen.quiet .message span { color: var(--onSurfaceVariant); }
   .screen > * { grid-area: 1 / 1; padding: 0 18px; transition: opacity 260ms var(--ease), transform 260ms var(--rise); }
   .screen > .gone { opacity: 0; transform: translateY(-4px); }
   .screen > .coming { opacity: 0; transform: translateY(5px); }
   .screen .message { display: flex; flex-direction: column; gap: 4px; }
-  .screen .message b { color: #fff; font-size: 14px; line-height: 19px; font-weight: 500; }
-  .screen .message span { color: rgba(255, 255, 255, 0.62); font-size: 12px; line-height: 17px; }
+  .screen .message b { color: var(--onSurface); font-size: 14px; line-height: 19px; font-weight: 500; }
+  .screen .message span { color: var(--onSurfaceVariant); font-size: 12px; line-height: 17px; }
   .screen .waiting::after { content: "…"; display: inline-block; width: 1.2em; text-align: left; animation: dots 1.4s steps(4) infinite; overflow: hidden; vertical-align: bottom; }
   @keyframes dots { from { width: 0; } to { width: 1.2em; } }
   .about { display: flex; align-items: baseline; gap: 10px; margin: 10px 2px 0; }
@@ -78,11 +68,14 @@
 
   .foot { display: flex; align-items: center; gap: 6px; padding: 2px 16px 0; font-size: 12px; line-height: 17px; color: var(--onSurfaceVariant); }
   .foot .grow { flex: 1; }
+  .foot > * { white-space: nowrap; flex: none; }
+  /* what gives, if a long shortcut leaves too little room */
+  .foot .hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .foot a { color: var(--onSurfaceVariant); text-decoration: none; }
   .foot a:hover { color: var(--primary); }
 </style>
 </head>
-<body>
+<body class="waiting">
 <header class="top rise">
   <img class="mark" src="icons/128.png" alt="">
   <div class="who">

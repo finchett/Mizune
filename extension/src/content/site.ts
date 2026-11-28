@@ -158,7 +158,8 @@ class CrunchyrollSite extends ElementSite {
     return location.pathname.match(/\/watch\/([A-Z0-9]+)/)?.[1] ?? null;
   }
   title() {
-    return document.title.replace(/\s*[-|–]\s*Crunchyroll\s*$/i, '').replace(/^Watch\s+/i, '').trim() || null;
+    const title = document.title.replace(/\s*[-|–]\s*Crunchyroll\s*$/i, '').replace(/^Watch\s+/i, '').trim();
+    return title && !/^crunchyroll$/i.test(title) ? title : null;
   }
 }
 
@@ -310,7 +311,9 @@ class NetflixSite extends ElementSite {
       const text = parts.length ? parts.join(' ') : shown.textContent?.trim();
       if (text) return text;
     }
-    return document.title.replace(/\s*[-|–]\s*Netflix\s*$/i, '').trim() || null;
+    // (the page's title is only "Netflix" until it knows the video, and on some pages after)
+    const title = document.title.replace(/\s*[-|–]\s*Netflix\s*$/i, '').trim();
+    return title && !/^netflix$/i.test(title) ? title : null;
   }
 
   /** Asks page.ts to do [kind] with Netflix's player: whether it could, and what it answered. */

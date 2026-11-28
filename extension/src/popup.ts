@@ -9,6 +9,34 @@ import { chosenSites, siteRow } from './sites';
 
 const $ = (id: string) => document.getElementById(id)!;
 
+// The browser opens the popup at the size it's first drawn at, and grows or shrinks it, where it
+// can be seen, as what's in it changes. So nothing in it shows till all of it's drawn (it starts
+// out waiting, in popup.html), and meanwhile it keeps the height it had last time, which it
+// mostly has again.
+const HEIGHT = 'popupHeight';
+const remembered = (() => {
+  try {
+    return Number(localStorage.getItem(HEIGHT)) || 0;
+  } catch {
+    return 0;
+  }
+})();
+if (remembered) document.documentElement.style.height = `${remembered}px`;
+/** Where what's in it ends (not the window's height, which is what it was a moment ago). */
+const drawnHeight = () => Math.ceil(document.body.getBoundingClientRect().bottom + parseFloat(getComputedStyle(document.body).marginBottom));
+/** Shows what's drawn, at its own height; once, after everything, or after a while at most. */
+function reveal() {
+  if (!document.body.classList.contains('waiting')) return;
+  document.documentElement.style.height = '';
+  document.body.classList.remove('waiting');
+  try {
+    localStorage.setItem(HEIGHT, String(drawnHeight()));
+  } catch {
+    // (the next popup just opens at its own height)
+  }
+}
+setTimeout(reveal, 600);
+
 let settings: Settings;
 let app: string | undefined;
 let read: Read;
@@ -84,8 +112,6 @@ function drawTab() {
     button.setAttribute('aria-label', 'Mizune on this tab');
     switchBox.append(button);
   }
-  screen.classList.toggle('dim', !on);
-  screen.classList.toggle('quiet', view.kind === 'page' || view.kind === 'loading');
 
   let key: string;
   let content: () => HTMLElement;
@@ -208,10 +234,20 @@ function drawSetup() {
   $('setup').hidden = !(hello?.local && !hello.dictionaries);
 }
 
+/**
+ * A shortcut as a Mac writes it (⌥⇧M), where the browser gives it in words, as Firefox does
+ * (Alt+Shift+M; its Ctrl is the Mac's ⌘, and MacCtrl its ⌃).
+ */
+function keysFor(shortcut: string): string {
+  if (!/Mac/.test(navigator.platform) || !shortcut.includes('+')) return shortcut;
+  const MAC: Record<string, string> = { Alt: '⌥', Shift: '⇧', Ctrl: '⌘', Command: '⌘', MacCtrl: '⌃' };
+  return shortcut.split('+').map((key) => MAC[key] ?? key).join('');
+}
+
 async function drawFoot() {
   const foot = $('foot');
   const shortcut = (await api.commands.getAll().catch(() => [])).find((c) => c.name === 'toggle')?.shortcut;
-  if (shortcut) foot.append(h('span', 'keycap', shortcut), 'turns it on or off here');
+  if (shortcut) foot.append(h('span', 'keycap', keysFor(shortcut)), h('span', 'hint', 'turns it on or off here'));
   foot.append(h('span', 'grow'));
   // without the app, where to get it
   const site = h('a', undefined, hello?.local && settings.engine === 'auto' ? 'Get the Mizune app' : 'mizune.app');
@@ -257,6 +293,8 @@ async function start() {
   [tab] = await api.tabs.query({ active: true, currentWindow: true });
   // the popup opening counts as the button's click there, which lets Mizune record its audio
   if (tab?.id != null) api.runtime.sendMessage({ type: 'popupOpened', tabId: tab.id }).catch(() => {});
+  // what's in the tab, while the app's asked
+  const looked = refresh();
   const [version, answer] = await Promise.all([
     appVersion(),
     api.runtime.sendMessage({ type: 'host', message: { type: 'hello' } }).catch(() => null),
@@ -268,8 +306,8 @@ async function start() {
   drawTheme(read);
   drawState();
   drawSetup();
-  drawFoot();
-  await refresh();
+  await Promise.all([drawFoot(), looked]);
+  reveal();
 }
 
 systemDark.addEventListener('change', () => read && drawTheme(read));
