@@ -35,10 +35,13 @@ export const STYLES = `
 }
 .line[hidden] { display: none; }
 .line .c { border-radius: 0; padding: 1px 0; }
-.line .c.hl { background: color-mix(in srgb, var(--primary) 38%, transparent); }
-.line .c.sel { background: color-mix(in srgb, var(--tertiary) 40%, transparent); }
-.line .c.first { border-top-left-radius: 8px; border-bottom-left-radius: 8px; padding-left: 5px; margin-left: -5px; }
-.line .c.last { border-top-right-radius: 8px; border-bottom-right-radius: 8px; padding-right: 5px; margin-right: -5px; }
+.line .c.hl { --lit: color-mix(in srgb, var(--primary) 38%, transparent); background: var(--lit); }
+.line .c.sel { --lit: color-mix(in srgb, var(--tertiary) 40%, transparent); background: var(--lit); }
+/* the word's rounded ends reach past it as shadows, which take no room: as padding (and a margin
+   to make up for it) they can push a word onto the next row as it lights */
+.line .c.first { border-top-left-radius: 8px; border-bottom-left-radius: 8px; box-shadow: -5px 0 0 var(--lit); }
+.line .c.last { border-top-right-radius: 8px; border-bottom-right-radius: 8px; box-shadow: 5px 0 0 var(--lit); }
+.line .c.first.last { box-shadow: -5px 0 0 var(--lit), 5px 0 0 var(--lit); }
 .line .peek { font-size: 0.7em; }
 .line .peek.none { opacity: 0.7; }
 

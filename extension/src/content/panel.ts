@@ -384,10 +384,13 @@ export const PANEL_STYLES = `
 .panel .lines.peeking .en { opacity: 1; }
 .panel .status { color: var(--onSurfaceVariant); text-align: center; font-size: 14px; line-height: 1.5; padding: 8px; }
 .panel .c { border-radius: 0; padding: 1px 0; }
-.panel .c.hl { background: color-mix(in srgb, var(--primary) 30%, transparent); }
-.panel .c.sel { background: color-mix(in srgb, var(--tertiary) 34%, transparent); }
-.panel .c.first { border-top-left-radius: 8px; border-bottom-left-radius: 8px; padding-left: 5px; margin-left: -5px; }
-.panel .c.last { border-top-right-radius: 8px; border-bottom-right-radius: 8px; padding-right: 5px; margin-right: -5px; }
+.panel .c.hl { --lit: color-mix(in srgb, var(--primary) 30%, transparent); background: var(--lit); }
+.panel .c.sel { --lit: color-mix(in srgb, var(--tertiary) 34%, transparent); background: var(--lit); }
+/* the word's rounded ends reach past it as shadows, which take no room: as padding (and a margin
+   to make up for it) they can push a word onto the next row as it lights */
+.panel .c.first { border-top-left-radius: 8px; border-bottom-left-radius: 8px; box-shadow: -5px 0 0 var(--lit); }
+.panel .c.last { border-top-right-radius: 8px; border-bottom-right-radius: 8px; box-shadow: 5px 0 0 var(--lit); }
+.panel .c.first.last { box-shadow: -5px 0 0 var(--lit), 5px 0 0 var(--lit); }
 
 /* the dictionary, as the popup's */
 .panel .dict {
