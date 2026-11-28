@@ -63,12 +63,13 @@ let view: View = { kind: 'loading' };
 let shownKey = '';
 let belowKey = '';
 
-const SITES: Record<string, string> = { netflix: 'Netflix', crunchyroll: 'Crunchyroll' };
+const SITES: Record<string, string> = { netflix: 'Netflix', crunchyroll: 'Crunchyroll', youtube: 'YouTube' };
 
 function siteOf(url: string | undefined): string | null {
   const host = url ? new URL(url).hostname : '';
   if (host.endsWith('netflix.com')) return 'netflix';
   if (host.endsWith('crunchyroll.com')) return 'crunchyroll';
+  if (host.endsWith('youtube.com')) return 'youtube';
   return null;
 }
 

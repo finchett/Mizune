@@ -1,6 +1,7 @@
 // What Mizune draws over the site's video: the line, the lookup above it, a notice, and a
 // prompt. It lives in a shadow root, so the site's styles can't reach it, and sits in the
 // full-screen element when there is one, so it stays in view.
+import { origin, placeInPage, placingInPage } from './origin';
 import { Colors, Entry } from '../shared';
 import { CONTROL_STYLES } from './controls';
 import { EPISODE_STYLES } from './episodes';
@@ -115,6 +116,24 @@ export class Overlay {
     if (this.host.parentNode !== parent) parent.append(this.host);
   }
 
+  /**
+   * Where Mizune's player is a box in the site's page (YouTube's player), everything of the
+   * overlay's goes from the page's corner, and scrolls with it. Under the site's own bar across the
+   * top, which stays over the page as it scrolls, and its menus (YouTube's are over 2020).
+   */
+  inPage(on: boolean) {
+    // (a transform, so what's fixed in the overlay is fixed to it. Not cut at the page's width: a box
+    // of no height cut on one side takes no pointer, in Chrome, though it's seen)
+    const page = {
+      position: 'absolute', left: '0', top: '0', width: '100%', height: '0', 'z-index': '2019', transform: 'translate(0, 0)',
+    };
+    for (const [prop, value] of Object.entries(page)) {
+      if (on) this.host.style.setProperty(prop, value, 'important');
+      else this.host.style.removeProperty(prop);
+    }
+    placeInPage(on ? this.host : null);
+  }
+
   detach() {
     this.host.remove();
   }
@@ -124,13 +143,16 @@ export class Overlay {
    * part way down the video still shows its line.
    */
   place(video: DOMRect) {
-    const top = Math.max(video.top, 0), bottom = Math.min(video.bottom, innerHeight);
-    const rect = { left: video.left, top, width: video.width, height: Math.max(0, bottom - top) };
+    // in the page, it's over all of the player's box, as that scrolls
+    const inPage = placingInPage();
+    const top = inPage ? video.top : Math.max(video.top, 0), bottom = inPage ? video.bottom : Math.min(video.bottom, innerHeight);
+    const o = origin();
+    const rect = { left: video.left - o.x, top: top - o.y, width: video.width, height: Math.max(0, bottom - top) };
     const s = this.root.style;
-    s.left = `${rect.left}px`;
-    s.top = `${rect.top}px`;
-    s.width = `${rect.width}px`;
-    s.height = `${rect.height}px`;
+    s.left = `${px(rect.left)}px`;
+    s.top = `${px(rect.top)}px`;
+    s.width = `${px(rect.width)}px`;
+    s.height = `${px(rect.height)}px`;
     // as the app: clear of the bottom, and the lookup at most half the picture
     this.root.style.setProperty('--rest', `${Math.max(32, rect.height * 0.08)}px`);
     this.root.style.setProperty('--lookup-height', `${Math.min(360, rect.height * 0.5)}px`);
@@ -140,15 +162,20 @@ export class Overlay {
    * Makes the video a card, as the app's player: the overlay over [card] (the video's box, stood in
    * from its edges), rounded, in the gutter's colour all round. Null: the video as the site has it.
    */
-  card(card: DOMRect | null) {
+  card(card: DOMRect | null, within: DOMRect | null = null) {
     this.frame.hidden = !card;
     this.root.classList.toggle('in-card', !!card);
     if (!card) return;
+    const o = origin();
     const s = this.frame.style;
-    s.left = `${card.left}px`;
-    s.top = `${card.top}px`;
-    s.width = `${card.width}px`;
-    s.height = `${card.height}px`;
+    s.left = `${px(card.left - o.x)}px`;
+    s.top = `${px(card.top - o.y)}px`;
+    s.width = `${px(card.width)}px`;
+    s.height = `${px(card.height)}px`;
+    // the gutter goes as far as [within] (the site's player, in its page), else to the window's edges
+    s.clipPath = within
+      ? `inset(${px(within.top - card.top)}px ${px(card.right - within.right)}px ${px(card.bottom - within.bottom)}px ${px(within.left - card.left)}px)`
+      : '';
   }
 
   /** Puts [element] (Mizune's controls) over the video, under the notices and prompts. */
@@ -342,3 +369,6 @@ export class Overlay {
     this.drop.hidden = !on;
   }
 }
+
+/** [n] to a hundredth of a pixel, so what's set stays the same while nothing's moved. */
+const px = (n: number) => Math.round(n * 100) / 100;

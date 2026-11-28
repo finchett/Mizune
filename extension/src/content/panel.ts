@@ -1,5 +1,5 @@
-// The app's study panel (PlayerScreen.kt's StudyPanel), a card down the right of the window beside
-// the site's video: the way back and the track menu along the top, the line big enough to read and
+// The app's study panel (PlayerScreen.kt's StudyPanel), a card down the right of the window (or of
+// the site's player, where that's a box in its page) beside the site's video: the way back and the track menu along the top, the line big enough to read and
 // tap, the dictionary for the word picked in it (each line comes with one picked already), and the
 // line buttons and the stop at a line's end at the bottom. Its left edge drags to make it wider.
 import { Entry } from '../shared';
@@ -7,6 +7,7 @@ import { addHints, ICONS, LineStop, STOP_HINTS } from './controls';
 import { LookupMessages, renderLookup, Shown } from './lookup-view';
 import { ease, EASE, MOTION } from './motion';
 import { h } from '../dom';
+import { origin } from './origin';
 
 export interface PanelEvents {
   /** A character of the line was clicked. */
@@ -43,6 +44,8 @@ export interface PanelLine {
 }
 
 export const DEFAULT_FRACTION = 0.36;
+/** [n] to a hundredth of a pixel, so what's set stays the same while nothing's moved. */
+const px = (n: number) => Math.round(n * 100) / 100;
 /**
  * The app's cards (DesktopTheme.kt's Corners, off a Mac's window): the video and the panel each
  * stand this far in from the window's edge and from each other, with rounded corners.
@@ -155,12 +158,40 @@ export class Panel {
     const target = this.open ? 1 : 0;
     this.out = this.slideFrom + (target - this.slideFrom) * ease(t);
     this.element.hidden = this.out === 0;
-    this.element.style.transform = this.out === 1 ? '' : `translateX(${((1 - this.out) * 100).toFixed(2)}%)`;
+    const away = ((1 - this.out) * 100).toFixed(2);
+    this.element.style.transform = this.out === 1 ? '' : `translateX(${away}%)`;
+    // in a player's box, what's slid past its edge isn't seen
+    this.element.style.clipPath = this.stage && this.out < 1 ? `inset(0 ${away}% 0 0)` : '';
   }
 
-  /** How much of the window's width it takes, in pixels, as it slides; 0 while it's put away. */
+  /**
+   * The box it's down the right of: the site's player, where that's in its page (YouTube's), as
+   * it is in the window now; null for the window's right.
+   */
+  private stage: DOMRect | null = null;
+
+  setStage(stage: DOMRect | null) {
+    const was = this.stage;
+    if (!stage && !was) return;
+    this.stage = stage;
+    const s = this.element.style;
+    if (!stage) {
+      for (const prop of ['left', 'top', 'right', 'bottom', 'height']) s.removeProperty(prop);
+      this.setFraction(this.fraction);
+      return;
+    }
+    const o = origin();
+    const width = Math.round(stage.width * this.fraction);
+    s.left = `${px(stage.right - width - o.x)}px`;
+    s.top = `${px(stage.top - o.y)}px`;
+    s.height = `${px(stage.height)}px`;
+    s.right = s.bottom = 'auto';
+    s.width = `${width}px`;
+  }
+
+  /** How much of the window's width (or its box's) it takes, in pixels, as it slides; 0 while it's put away. */
   get width() {
-    return Math.round(innerWidth * this.fraction * this.out);
+    return Math.round(Math.round((this.stage?.width ?? innerWidth) * this.fraction) * this.out);
   }
 
   /** As the app's Rounded corners: a card on the gutter, or flat against the video with a hairline between. */
@@ -170,7 +201,8 @@ export class Panel {
 
   setFraction(fraction: number) {
     this.fraction = clampFraction(fraction);
-    this.element.style.width = `${this.fraction * 100}vw`;
+    if (this.stage) this.setStage(this.stage);
+    else this.element.style.width = `${this.fraction * 100}vw`;
   }
 
   private gripEvents() {
@@ -181,7 +213,9 @@ export class Panel {
       this.element.classList.add('resizing');
     });
     this.grip.addEventListener('pointermove', (e) => {
-      if (dragging) this.setFraction((innerWidth - e.clientX) / innerWidth);
+      if (!dragging) return;
+      const right = this.stage?.right ?? innerWidth, width = this.stage?.width ?? innerWidth;
+      this.setFraction((right - e.clientX) / width);
     });
     const end = () => {
       if (!dragging) return;

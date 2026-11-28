@@ -1,8 +1,8 @@
 // What differs between sites: where the video is, what it's called, and how to move it.
-import { CONTENT, isGecko, PAGE } from '../shared';
+import { CONTENT, isGecko, PAGE, SiteKind } from '../shared';
 
 export interface Site {
-  kind: 'netflix' | 'crunchyroll' | 'other';
+  kind: SiteKind | 'other';
   video(): HTMLVideoElement | null;
   /** The site's ID for what's playing, to match it with the subtitle files the page found. */
   videoId(): string | null;
@@ -41,11 +41,55 @@ export interface Site {
    * site's player would put it; null gives it back. [besidePanel]: the study panel's out beside it.
    */
   placeVideo?(rect: DOMRect | null, besidePanel?: boolean): void;
+  /**
+   * Where the site's player sits in its page, where that isn't the whole window (YouTube's, among
+   * the page's other things): Mizune's player, the panel too, takes that box, and scrolls with it.
+   */
+  stage?(): DOMRect | null;
+  /** The player's playing something else for a while (an advert), which its own controls are for. */
+  interlude?(): boolean;
+  /**
+   * Keeps the site's player as Mizune needs it while it's on (YouTube's in its theatre mode, which
+   * is as big as it gets in the page), and puts it back as it was after.
+   */
+  settle?(on: boolean): void;
+  /** Goes full screen, or back, the site's own way, where it has one. */
+  toggleFullscreen?(): void;
+  /** The player's own settings (its speed and quality, say), for Mizune's menu, where it has them. */
+  playback?(): Promise<Playback | null>;
+  setPlayback?(change: Partial<Pick<Playback, 'rate' | 'quality' | 'autoplay' | 'loop'>>): Promise<Playback | null>;
+  /** Has the player play the video's own Japanese, where it would play a machine's dub of it. */
+  preferOriginalAudio?(): void;
+  /** Whether the video has Japanese subtitles, as the site's player lists them; null while it can't say. */
+  japanese?(): Promise<boolean | null>;
+  /** The rest of the site player's own settings menu (YouTube's), as it labels them, for Mizune's. */
+  moreSettings?(): Promise<SiteSetting[] | null>;
+  /** Flips the switch [label], or chooses [choice] under it, in the site player's menu. */
+  chooseSetting?(label: string, choice?: string): Promise<boolean>;
+}
+
+/** One of a site player's own settings, as its menu has it: a switch, or a list to choose from. */
+export type SiteSetting =
+  | { kind: 'switch'; label: string; on: boolean }
+  | { kind: 'choices'; label: string; value: string; choices: { label: string; selected: boolean }[] };
+
+/** A site player's own settings, which Mizune's menu offers where its controls take the player's place. */
+export interface Playback {
+  rates: number[];
+  rate: number;
+  qualities: { id: string; label: string }[];
+  /** The quality chosen: one of [qualities], or "auto". */
+  quality: string;
+  /** What's playing now, as the player labels it (720p, say). */
+  playing: string;
+  /** The next video plays by itself. */
+  autoplay: boolean;
+  loop: boolean;
 }
 
 /** The tracks a site's player has, for the track menu. */
 export interface SiteTracks {
-  subtitles: { id: string; language: string; label: string; captions: boolean }[];
+  subtitles: { id: string; language: string; label: string; captions: boolean; machine?: boolean }[];
   audio: { id: string; language: string; label: string; selected: boolean }[];
 }
 
@@ -57,8 +101,8 @@ export interface OwnControls {
   hide(hide: boolean): void;
   /** Hides the pointer over the player, which the site would show while it's busy. */
   hideCursor(hide: boolean): void;
-  /** Leaves the video, as the site's own back button. */
-  back(): void;
+  /** Leaves the video, as the site's own back button, where Mizune has one for it (not on YouTube, whose page is all there round the player). */
+  back?(): void;
 }
 
 /** The biggest video showing in this frame. */
@@ -86,6 +130,53 @@ function waitForSeek(video: HTMLVideoElement, target: number): Promise<void> {
     const timer = setTimeout(done, 3000);
     if (Math.abs(video.currentTime - target) < 0.05 && !video.seeking) return done();
     video.addEventListener('seeked', done);
+  });
+}
+
+/**
+ * How a held picture is put in [card] (on whole pixels): the box it's given, how it fills that,
+ * and a filter.
+ */
+// Filling, Firefox on a Mac draws the picture a pixel one way or the other as the page under the
+// pointer changes, depending how it's cut: beside the panel, when object-fit cuts it to the card;
+// on its own, when the window's edges do. So beside the panel it isn't cut: it's made as big as
+// covers the card, and what's past the card is under the panel, the gutter round the card, or out
+// of the window (or the site's player). On its own, object-fit cuts it. And on its own in a window,
+// Firefox still draws a cut picture a pixel over as other things in the window are drawn again,
+// whichever way it's cut or sized: it puts the video on a layer of its own, or draws it in with the
+// rest, by turns, and the two land a pixel apart. A filter keeps it drawn in with the rest, always;
+// this one changes nothing that can be seen.
+function framing(card: DOMRect, filling: boolean, besidePanel: boolean, video: HTMLVideoElement) {
+  let target = card, objectFit: string | null = null;
+  const filter = isGecko && filling ? 'brightness(1.0001)' : null;
+  if (filling && besidePanel && video.videoWidth && video.videoHeight) {
+    const scale = Math.max(card.width / video.videoWidth, card.height / video.videoHeight);
+    const width = Math.round(video.videoWidth * scale), height = Math.round(video.videoHeight * scale);
+    target = new DOMRect(card.left + Math.round((card.width - width) / 2), card.top + Math.round((card.height - height) / 2), width, height);
+    objectFit = 'fill';
+  } else if (filling) {
+    objectFit = 'cover';
+  }
+  return { target, objectFit, filter };
+}
+
+/** Asks page.ts to do [kind] with the site's player: whether it could, and what it answered. */
+let nextId = 1;
+function command(kind: string, data: Record<string, unknown> = {}, timeoutMs = 1000): Promise<{ ok: boolean; data?: any }> {
+  const id = `n${nextId++}`;
+  return new Promise((resolve) => {
+    const onAnswer = (event: MessageEvent) => {
+      if (event.source !== window || event.data?.source !== PAGE || event.data.kind !== 'answer' || event.data.id !== id) return;
+      window.removeEventListener('message', onAnswer);
+      clearTimeout(timer);
+      resolve({ ok: !!event.data.ok, data: event.data.data });
+    };
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', onAnswer);
+      resolve({ ok: false });
+    }, timeoutMs);
+    window.addEventListener('message', onAnswer);
+    window.postMessage({ source: CONTENT, kind, id, ...data }, '*');
   });
 }
 
@@ -166,7 +257,6 @@ class CrunchyrollSite extends ElementSite {
 /** Netflix: moved through its own player, by page.ts, since setting the video's time upsets it. */
 class NetflixSite extends ElementSite {
   kind: Site['kind'] = 'netflix';
-  private nextId = 1;
   private style: HTMLStyleElement | null = null;
   private room: HTMLStyleElement | null = null;
   private roomWidth = 0;
@@ -236,26 +326,9 @@ class NetflixSite extends ElementSite {
     // it too), so it's measured, and set again to make up the difference.
     const held = (this.holding ??= { video, fit: { ox: 0, oy: 0, sx: 1, sy: 1 }, set: '' });
     const fit = held.fit;
-    // On whole pixels. And filling, Firefox on a Mac draws the picture a pixel one way or the other
-    // as the page under the pointer changes, depending how it's cut: beside the panel, when
-    // object-fit cuts it to the card; on its own, when the window's edges do. So beside the panel
-    // it isn't cut: it's made as big as covers the card, and what's past the card is under the
-    // panel, the gutter round the card, or out of the window. On its own, object-fit cuts it.
-    // And on its own in a window, Firefox still draws a cut picture a pixel over as other things
-    // in the window are drawn again, whichever way it's cut or sized: it puts the video on a layer
-    // of its own, or draws it in with the rest, by turns, and the two land a pixel apart. A filter
-    // keeps it drawn in with the rest, always; this one changes nothing that can be seen.
+    // On whole pixels (and how it's framed: see framing).
     const card = new DOMRect(Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height));
-    let target = card, objectFit: string | null = null;
-    const filter = isGecko && this.filling ? 'brightness(1.0001)' : null;
-    if (this.filling && besidePanel && video.videoWidth && video.videoHeight) {
-      const scale = Math.max(card.width / video.videoWidth, card.height / video.videoHeight);
-      const width = Math.round(video.videoWidth * scale), height = Math.round(video.videoHeight * scale);
-      target = new DOMRect(card.left + Math.round((card.width - width) / 2), card.top + Math.round((card.height - height) / 2), width, height);
-      objectFit = 'fill';
-    } else if (this.filling) {
-      objectFit = 'cover';
-    }
+    const { target, objectFit, filter } = framing(card, this.filling, besidePanel, video);
     for (let tries = 0; tries < 4; tries++) {
       const css = [(target.left - fit.ox) / fit.sx, (target.top - fit.oy) / fit.sy, target.width / fit.sx, target.height / fit.sy];
       const set = [...css.map((n) => n.toFixed(2)), objectFit, filter].join(' ');
@@ -297,7 +370,7 @@ class NetflixSite extends ElementSite {
 
   setVolume(level: number, muted: boolean) {
     // through Netflix's player, which keeps its own volume; the element if that doesn't answer
-    this.command('volume', { level, muted }).then(({ ok }) => ok || super.setVolume(level, muted));
+    command('volume', { level, muted }).then(({ ok }) => ok || super.setVolume(level, muted));
   }
 
   videoId() {
@@ -316,60 +389,41 @@ class NetflixSite extends ElementSite {
     return title && !/^netflix$/i.test(title) ? title : null;
   }
 
-  /** Asks page.ts to do [kind] with Netflix's player: whether it could, and what it answered. */
-  private command(kind: string, data: Record<string, unknown> = {}, timeoutMs = 1000): Promise<{ ok: boolean; data?: any }> {
-    const id = `n${this.nextId++}`;
-    return new Promise((resolve) => {
-      const onAnswer = (event: MessageEvent) => {
-        if (event.source !== window || event.data?.source !== PAGE || event.data.kind !== 'answer' || event.data.id !== id) return;
-        window.removeEventListener('message', onAnswer);
-        clearTimeout(timer);
-        resolve({ ok: !!event.data.ok, data: event.data.data });
-      };
-      const timer = setTimeout(() => {
-        window.removeEventListener('message', onAnswer);
-        resolve({ ok: false });
-      }, timeoutMs);
-      window.addEventListener('message', onAnswer);
-      window.postMessage({ source: CONTENT, kind, id, ...data }, '*');
-    });
-  }
-
   async seek(seconds: number) {
     const video = this.video();
-    if (!(await this.command('seek', { seconds: Math.max(0, seconds) })).ok) return super.seek(seconds);
+    if (!(await command('seek', { seconds: Math.max(0, seconds) })).ok) return super.seek(seconds);
     if (video) await waitForSeek(video, seconds);
   }
 
   async play() {
-    if (!(await this.command('play')).ok) await super.play();
+    if (!(await command('play')).ok) await super.play();
   }
 
   pause() {
-    this.command('pause').then(({ ok }) => ok || super.pause());
+    command('pause').then(({ ok }) => ok || super.pause());
   }
 
   requestSubtitles(languages: string[]) {
-    this.command('subtitles', { languages });
+    command('subtitles', { languages });
   }
 
   requestShow() {
     // what it finds comes as the page's own message
-    this.command('show', {}, 15000);
+    command('show', {}, 15000);
   }
 
   async trackList(): Promise<SiteTracks | null> {
-    const { ok, data } = await this.command('trackList');
+    const { ok, data } = await command('trackList');
     return ok ? data : null;
   }
 
   async fetchTrack(id: string) {
     // the player waits up to 30 s for its tracks, then 8 for the file
-    return (await this.command('fetchTrack', { track: id }, 40000)).ok;
+    return (await command('fetchTrack', { track: id }, 40000)).ok;
   }
 
   async setAudio(id: string) {
-    return (await this.command('audio', { track: id })).ok;
+    return (await command('audio', { track: id })).ok;
   }
 
   hideOwnSubtitles(hide: boolean) {
@@ -454,8 +508,266 @@ function poke() {
   if (player && r) player.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
 }
 
+// ---- YouTube --------------------------------------------------------------------------------
+
+/** A style sheet of Mizune's on the page, put in or taken out whole. */
+class PageStyle {
+  private element: HTMLStyleElement | null = null;
+
+  set(css: string | null) {
+    if (css == null) {
+      this.element?.remove();
+      this.element = null;
+      return;
+    }
+    this.element ??= document.createElement('style');
+    if (this.element.textContent !== css) this.element.textContent = css;
+    if (!this.element.isConnected) document.documentElement.append(this.element);
+  }
+}
+
+/**
+ * YouTube: its player sits in its page, among the video's title and the videos beside it, and
+ * Mizune's takes the player's box, not the window, scrolling with the page (see [stage]). It's
+ * worked through YouTube's own player, by page.ts, which has the settings YouTube's menu would.
+ */
+class YouTubeSite extends ElementSite {
+  kind: Site['kind'] = 'youtube';
+  private filling = false;
+  private placing = new PageStyle();
+  private captions = new PageStyle();
+  ownControls = new YouTubeControls();
+
+  private player(): HTMLElement | null {
+    return document.getElementById('movie_player');
+  }
+
+  video = (): HTMLVideoElement | null =>
+    this.player()?.querySelector<HTMLVideoElement>('video.html5-main-video') ?? this.player()?.querySelector('video') ?? null;
+
+  videoId() {
+    return location.pathname === '/watch' ? new URLSearchParams(location.search).get('v') : null;
+  }
+
+  title() {
+    // (with how many notifications there are first, while there are some)
+    const title = document.title.replace(/^\(\d+\+?\)\s*/, '').replace(/\s*-\s*YouTube\s*$/i, '').trim();
+    return title && !/^youtube$/i.test(title) ? title : null;
+  }
+
+  stage() {
+    const r = this.player()?.getBoundingClientRect();
+    return r && r.width > 0 && r.height > 0 ? r : null;
+  }
+
+  interlude() {
+    return !!this.player()?.matches('.ad-showing, .ad-interrupting');
+  }
+
+  fill(on: boolean) {
+    // how it fills is part of where it's put (placeVideo), as it always is while Mizune's on
+    this.filling = on;
+  }
+
+  /**
+   * YouTube sizes and places its picture itself, as its player's box changes, by the video's own
+   * style; Mizune's sheet says otherwise, over it. Placed in the player's box (where YouTube's
+   * video is anyway), it scrolls with the page.
+   */
+  placeVideo(rect: DOMRect | null, besidePanel = false) {
+    const video = rect && rect.width > 0 && rect.height > 0 ? this.video() : null;
+    const box = video?.offsetParent;
+    if (!rect || !video || !box) return this.placing.set(null);
+    // in the box's own terms, which don't change as the page scrolls; on whole pixels
+    const b = box.getBoundingClientRect();
+    const card = new DOMRect(Math.round(rect.left - b.left - box.clientLeft), Math.round(rect.top - b.top - box.clientTop), Math.round(rect.width), Math.round(rect.height));
+    const { target, objectFit, filter } = framing(card, this.filling, besidePanel, video);
+    const rules = [
+      'position: absolute', `left: ${target.left}px`, `top: ${target.top}px`, `width: ${target.width}px`, `height: ${target.height}px`,
+      'max-width: none', 'max-height: none', 'transform: none', `object-fit: ${objectFit ?? 'contain'}`, ...(filter ? [`filter: ${filter}`] : []),
+    ];
+    // and its flash as it plays or pauses (and its words, as it seeks), over the middle of the picture,
+    // not of the player's box, which is the panel's too
+    const player = this.player()!;
+    const p = player.getBoundingClientRect();
+    const left = Math.round(rect.left - p.left - player.clientLeft), top = Math.round(rect.top - p.top - player.clientTop);
+    this.placing.set(`#movie_player video.html5-main-video { ${rules.map((r) => `${r} !important;`).join(' ')} }
+      #movie_player .ytp-bezel { left: ${left + Math.round(rect.width / 2)}px !important; top: ${top + Math.round(rect.height / 2)}px !important; }
+      #movie_player .ytp-bezel-text-wrapper { left: ${left}px !important; width: ${Math.round(rect.width)}px !important; }`);
+  }
+
+  toggleFullscreen() {
+    // YouTube's own full screen, by its own button (hidden, but there), while the click that asked
+    // still counts: the page, with YouTube's player laid over all of it
+    const button = this.player()?.querySelector<HTMLElement>('.ytp-fullscreen-button');
+    if (button) return button.click();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else this.fullscreenTarget()?.requestFullscreen().catch(() => {});
+  }
+
+  fullscreenTarget() {
+    return document.documentElement;
+  }
+
+  setVolume(level: number, muted: boolean) {
+    // through YouTube's player, which keeps its own volume (and shows it); the element if that doesn't answer
+    command('volume', { level, muted }).then(({ ok }) => ok || super.setVolume(level, muted));
+  }
+
+  async seek(seconds: number) {
+    const video = this.video();
+    if (!(await command('seek', { seconds: Math.max(0, seconds) })).ok) return super.seek(seconds);
+    if (video) await waitForSeek(video, seconds);
+  }
+
+  async play() {
+    if (!(await command('play')).ok) await super.play();
+  }
+
+  pause() {
+    command('pause').then(({ ok }) => ok || super.pause());
+  }
+
+  requestSubtitles(languages: string[]) {
+    command('subtitles', { languages });
+  }
+
+  async trackList(): Promise<SiteTracks | null> {
+    const { ok, data } = await command('trackList');
+    return ok ? data : null;
+  }
+
+  async fetchTrack(id: string) {
+    // the player waits up to 30 s for its tracks, then 8 for the file
+    return (await command('fetchTrack', { track: id }, 40000)).ok;
+  }
+
+  async setAudio(id: string) {
+    return (await command('audio', { track: id })).ok;
+  }
+
+  preferOriginalAudio() {
+    command('originalAudio');
+  }
+
+  async japanese() {
+    const { ok, data } = await command('hasJapanese');
+    return ok ? !!data : null;
+  }
+
+  async playback(): Promise<Playback | null> {
+    const { ok, data } = await command('playback');
+    return ok ? data : null;
+  }
+
+  async setPlayback(change: Partial<Playback>): Promise<Playback | null> {
+    const { ok, data } = await command('setPlayback', { change });
+    return ok ? data : null;
+  }
+
+  async moreSettings(): Promise<SiteSetting[] | null> {
+    // (it opens each of YouTube's lists to read it)
+    const { ok, data } = await command('moreSettings', {}, 10000);
+    return ok ? data : null;
+  }
+
+  async chooseSetting(label: string, choice?: string) {
+    return (await command('chooseSetting', { label, choice }, 5000)).ok;
+  }
+
+  /** Whether the page was in theatre mode before Mizune put it there; null while Mizune's off. */
+  private wasTheatre: boolean | null = null;
+  private theatreAsked = 0;
+
+  settle(on: boolean) {
+    const page = document.querySelector('ytd-watch-flexy');
+    const theatre = !!page?.hasAttribute('theater');
+    const size = () => (document.querySelector('#movie_player .ytp-size-button') as HTMLElement | null)?.click();
+    this.noPictureInPicture(on ? this.video() : null);
+    if (!on) {
+      if (this.wasTheatre === false && theatre && !document.fullscreenElement) size();
+      this.wasTheatre = null;
+      removeEventListener('keydown', this.keepSize, true);
+      removeEventListener('wheel', this.keepStill, true);
+      return;
+    }
+    if (this.wasTheatre == null) {
+      this.wasTheatre = theatre;
+      addEventListener('keydown', this.keepSize, true);
+      addEventListener('wheel', this.keepStill, { capture: true, passive: false });
+    }
+    // full screen, YouTube's page scrolls on under its player (more videos, then the rest of the
+    // page); Mizune's full screen is the video, so it stays at the top
+    if (document.fullscreenElement && scrollY) scrollTo(0, 0);
+    // full screen's bigger still; and a press is a moment taking
+    if (!page || theatre || document.fullscreenElement || Date.now() - this.theatreAsked < 1500) return;
+    this.theatreAsked = Date.now();
+    size();
+  }
+
+  /** The video Mizune took the browser's picture-in-picture from, to give it back. */
+  private noPip: HTMLVideoElement | null = null;
+
+  /** The browser's button to pop the video out into a window of its own goes from [video] while Mizune has it. */
+  private noPictureInPicture(video: HTMLVideoElement | null) {
+    if (this.noPip === video) return;
+    if (this.noPip) this.noPip.disablePictureInPicture = false;
+    this.noPip = video && !video.disablePictureInPicture ? video : null;
+    if (this.noPip) this.noPip.disablePictureInPicture = true;
+  }
+
+  /** In full screen, the wheel scrolls only what's Mizune's (the panel's lookup, say), not YouTube's page. */
+  private keepStill = (event: WheelEvent) => {
+    if (!document.fullscreenElement || event.ctrlKey || event.metaKey) return;
+    if (event.composedPath().some((e) => (e as Element).tagName === 'MIZUNE-OVERLAY')) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  /** YouTube's keys for its default view (t) and its small player in the corner (i) do nothing. */
+  private keepSize = (event: KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || !/^[it]$/i.test(event.key)) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, textarea, [contenteditable=""], [contenteditable=true]')) return;
+    // past Mizune's own listener here, not on to YouTube's
+    event.stopPropagation();
+  };
+
+  hideOwnSubtitles(hide: boolean) {
+    this.captions.set(hide ? '#movie_player .ytp-caption-window-container { visibility: hidden !important; }' : null);
+  }
+}
+
+/**
+ * What of YouTube's own is hidden while Mizune's controls are out: its bars and their shades, and
+ * what it shows over the middle (the big play button, its cards and links). Not the flash as it
+ * plays or pauses (see placeVideo), nor its adverts' (Mizune steps aside for those), nor what it
+ * shows at a video's end, where the next one is offered.
+ */
+const YOUTUBE_HIDDEN = `#movie_player :is(.ytp-chrome-top, .ytp-chrome-bottom, .ytp-gradient-top, .ytp-gradient-bottom,
+  .ytp-large-play-button, .ytp-spinner, .ytp-tooltip, .ytp-ce-element, .ytp-cards-teaser,
+  .ytp-cards-button, .ytp-paid-content-overlay, .ytp-pause-overlay, .ytp-iv-player-content, .ytp-overlays-container,
+  .ytp-fullscreen-grid, .ytp-fullscreen-quick-actions, .ytp-fullscreen-metadata)
+  { visibility: hidden !important; pointer-events: none !important; }`;
+
+class YouTubeControls implements OwnControls {
+  name = 'YouTube';
+  private style = new PageStyle();
+  private cursor = new PageStyle();
+
+  hide(hide: boolean) {
+    this.style.set(hide ? YOUTUBE_HIDDEN : null);
+  }
+
+  hideCursor(hide: boolean) {
+    this.cursor.set(hide ? '#movie_player, #movie_player * { cursor: none !important; }' : null);
+  }
+
+}
+
 export function siteFor(hostname: string): Site {
   if (hostname.endsWith('netflix.com')) return new NetflixSite();
   if (hostname.endsWith('crunchyroll.com')) return new CrunchyrollSite();
+  if (hostname.endsWith('youtube.com')) return new YouTubeSite();
   return new ElementSite();
 }

@@ -1,7 +1,8 @@
 // Runs in the site's own JavaScript world, from before the site's scripts, and picks up the
-// subtitle files Netflix's and Crunchyroll's players get, and the pictures they show over their seek
-// bars. What it finds goes to the content script (content/main.ts). On Netflix it also moves the
-// player for it, through Netflix's own player: setting the video's time directly upsets it.
+// subtitle files Netflix's, Crunchyroll's and YouTube's players get, and the pictures Netflix and
+// Crunchyroll show over their seek bars. What it finds goes to the content script (content/main.ts).
+// On Netflix and YouTube it also works the player for it, through the site's own player: setting
+// the video's time directly upsets Netflix's, and YouTube's has settings of its own.
 import { isBif } from '../bif';
 import { CONTENT, FoundEpisode, FoundShow, FoundTrack, mergeShow, PAGE, showHas } from '../shared';
 
@@ -412,6 +413,450 @@ function crunchyroll() {
   } as typeof XMLHttpRequest.prototype.open;
 }
 
+// ---- YouTube --------------------------------------------------------------------------------
+
+/**
+ * YouTube's captions in its own JSON (json3) as WebVTT: a line each event with words in it. Made
+ * by machine (asr), YouTube shows its lines two at a time, rolling up, each until the one after
+ * the next: here a line lasts until the next starts.
+ */
+function json3ToVtt(json: any, rolling: boolean): string {
+  const events: { start: number; end: number; text: string }[] = [];
+  for (const event of Array.isArray(json?.events) ? json.events : []) {
+    if (!Array.isArray(event.segs) || event.aAppend) continue;
+    const text = event.segs.map((s: any) => text_(s?.utf8)).join('').replace(/\n\s*\n/g, '\n').trim();
+    const start = Number(event.tStartMs);
+    if (!text || !Number.isFinite(start)) continue;
+    events.push({ start, end: start + Number(event.dDurationMs ?? 0), text });
+  }
+  events.sort((a, b) => a.start - b.start);
+  if (rolling) events.forEach((e, i) => (e.end = Math.min(e.end, events[i + 1]?.start ?? e.end)));
+  const time = (ms: number) => {
+    const t = Math.max(0, Math.round(ms));
+    const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+    return `${pad(Math.floor(t / 3600000))}:${pad(Math.floor(t / 60000) % 60)}:${pad(Math.floor(t / 1000) % 60)}.${pad(t % 1000, 3)}`;
+  };
+  return 'WEBVTT\n\n' + events.filter((e) => e.end > e.start).map((e) => `${time(e.start)} --> ${time(e.end)}\n${e.text}\n`).join('\n');
+}
+
+const text_ = (value: unknown) => (typeof value === 'string' ? value : '');
+
+/**
+ * YouTube's player asks for the captions it shows with a token of its own, made where the page
+ * can't, and the same address asked again gets nothing; so, as on Netflix, the files are picked
+ * up as the player downloads them, and to get Japanese and the peek language the player is
+ * switched to each for a moment, its own captions hidden, then back to what it was showing.
+ * Machine-made captions (asr) count as captions, so a person's subtitles come first; and where
+ * the video has no track in the peek language, YouTube's translation of the Japanese stands in.
+ */
+function youtube() {
+  /** videoId/language and videoId/track ID: what's been found already. */
+  const found = new Set<string>();
+  const player = (): any => document.getElementById('movie_player');
+  const watchId = () => (location.pathname === '/watch' ? new URLSearchParams(location.search).get('v') : null);
+
+  /** Every caption track the video has, as the player's response lists them (machine-made too). */
+  function captionTracks(p: any): any[] {
+    const response = p?.getPlayerResponse?.();
+    // the response can still be the last video's, just after the page moves to another
+    if (!response || response.videoDetails?.videoId !== watchId()) return [];
+    return response.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+  }
+  const trackName = (t: any) => text_(t?.name?.simpleText) || (t?.name?.runs ?? []).map((r: any) => text_(r?.text)).join('') || text_(t?.languageCode);
+  const isAsr = (t: any) => t?.kind === 'asr';
+  const trackId = (t: any) => text_(t?.vssId ?? t?.vss_id);
+
+  /** A track's ID with a translation into [to], as the track menu knows it. */
+  const translatedId = (from: string, to: string) => `${from}>${to}`;
+
+  /** The language names YouTube translates into, by their code. */
+  function translations(p: any): Map<string, string> {
+    const list = p?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer?.translationLanguages ?? [];
+    return new Map(list.map((l: any) => [text_(l.languageCode), text_(l.languageName?.simpleText) || (l.languageName?.runs ?? []).map((r: any) => text_(r?.text)).join('')]));
+  }
+
+  /** The Japanese track a translation's made from: a person's, else the machine's. */
+  const japanese = (tracks: any[]) => tracks.filter((t) => language(t.languageCode) === 'ja').sort((a, b) => Number(isAsr(a)) - Number(isAsr(b)))[0];
+
+  function onCaptions(url: string, body: string) {
+    if (!/\/api\/timedtext\b/.test(url) || !body) return;
+    const params = new URL(url, location.href).searchParams;
+    const videoId = params.get('v');
+    const lang = language(params.get('lang') ?? '');
+    if (!videoId || !lang) return;
+    let json: any;
+    try {
+      json = JSON.parse(body);
+    } catch {
+      return;
+    }
+    const tlang = language(params.get('tlang') ?? '');
+    const asr = params.get('kind') === 'asr';
+    const tracks = captionTracks(player());
+    // (of two in a language, the one the address names)
+    const same = tracks.filter((t) => language(t.languageCode) === lang && isAsr(t) === asr);
+    const source = same.find((t) => new URL(text_(t.baseUrl), location.href).searchParams.get('name') === params.get('name')) ?? same[0];
+    const id = source ? trackId(source) : `${asr ? 'a' : ''}.${lang}`;
+    const label = tlang
+      ? `${translations(player()).get(tlang) || tlang} (auto-translated)`
+      : source ? trackName(source) : lang;
+    const finalLanguage = tlang ?? lang;
+    found.add(`${videoId}/${finalLanguage}`);
+    found.add(`${videoId}/${tlang ? translatedId(id, tlang) : id}`);
+    send({ site: 'youtube', videoId, language: finalLanguage, label, captions: asr || !!tlang, machine: asr || !!tlang, name: `youtube.${finalLanguage}.vtt`, text: json3ToVtt(json, asr) });
+  }
+
+  const open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (this: XMLHttpRequest, ...args: any[]) {
+    const url = String(args[1] ?? '');
+    if (/\/api\/timedtext\b/.test(url)) {
+      this.addEventListener('load', () => {
+        try {
+          if (this.responseType === '' || this.responseType === 'text') onCaptions(url, this.responseText);
+          else if (this.responseType === 'json') onCaptions(url, JSON.stringify(this.response));
+          else if (this.responseType === 'arraybuffer') onCaptions(url, new TextDecoder().decode(this.response));
+        } catch {}
+      });
+    }
+    return (open as any).apply(this, args);
+  } as typeof XMLHttpRequest.prototype.open;
+
+  const originalFetch = window.fetch;
+  window.fetch = async function (this: unknown, ...args: Parameters<typeof fetch>) {
+    const response = await originalFetch.apply(this, args);
+    try {
+      const url = response.url || String(args[0] instanceof Request ? args[0].url : args[0]);
+      if (/\/api\/timedtext\b/.test(url)) response.clone().text().then((body) => onCaptions(url, body), () => {});
+    } catch {}
+    return response;
+  };
+
+  /** Hides YouTube's own captions while the player's switched to fetch a track. */
+  let hiding: HTMLStyleElement | null = null;
+  function hideCaptions(hide: boolean) {
+    if (hide && !hiding) {
+      hiding = document.createElement('style');
+      hiding.textContent = '#movie_player .ytp-caption-window-container { visibility: hidden !important; }';
+      document.documentElement.append(hiding);
+    } else if (!hide) {
+      hiding?.remove();
+      hiding = null;
+    }
+  }
+
+  /** The player once it has [videoId] and its caption tracks, after any adverts before it. */
+  async function ready(videoId: string, withinMs = 30000) {
+    for (let waited = 0; waited < withinMs; waited += 250) {
+      const p = player();
+      if (watchId() !== videoId) return null;
+      const advert = p?.classList?.contains('ad-showing') || p?.classList?.contains('ad-interrupting');
+      if (!advert && p?.setOption && p.getPlayerResponse?.()?.videoDetails?.videoId === videoId) return p;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return null;
+  }
+
+  /** A queue, so one switch of the player's captions finishes before the next. */
+  let queue: Promise<unknown> = Promise.resolve();
+  const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = queue.then(run, run);
+    queue = next.catch(() => undefined);
+    return next;
+  };
+
+  /**
+   * Switches the player's captions to [track] (with a translation into [to]) until its file has
+   * come, then back to what it was showing (or none).
+   */
+  async function fetchTrack(p: any, videoId: string, track: any, to?: string) {
+    const key = `${videoId}/${to ? translatedId(trackId(track), to) : trackId(track)}`;
+    if (found.has(key)) return true;
+    const showing = p.getOption?.('captions', 'track');
+    hideCaptions(true);
+    try {
+      p.loadModule?.('captions');
+      const option = {
+        languageCode: track.languageCode, kind: track.kind ?? '', vss_id: trackId(track), name: trackName(track),
+        ...(to ? { translationLanguage: { languageCode: to, languageName: translations(p).get(to) ?? to } } : {}),
+      };
+      // the player's own list has the track by its ID (the machine's too, when asked for: it leaves
+      // them out where a person's is in the same language); asked by language alone, it picks its favourite
+      const listed = (p.getOption?.('captions', 'tracklist', { includeAsr: true }) ?? []).find((t: any) => t.vss_id === option.vss_id);
+      p.setOption('captions', 'track', listed ? { ...listed, ...(option.translationLanguage ? { translationLanguage: option.translationLanguage } : {}) } : option);
+      for (let waited = 0; waited < 8000 && !found.has(key); waited += 100) await new Promise((r) => setTimeout(r, 100));
+    } finally {
+      p.setOption('captions', 'track', showing?.languageCode ? showing : {});
+      // its own captions come back after a moment, for what it shows by itself
+      setTimeout(() => hideCaptions(false), 400);
+    }
+    return found.has(key);
+  }
+
+  /** The wanted languages' files that haven't come yet, for a video with Japanese captions. */
+  const asked = new Set<string>();
+  async function fetchSubtitles() {
+    const videoId = watchId();
+    if (!videoId || asked.has(videoId)) return;
+    asked.add(videoId);
+    // (adverts can go on for minutes; the content script asks again until there's Japanese)
+    const p = await ready(videoId, 5 * 60000);
+    if (!p) return void asked.delete(videoId);
+    const tracks = captionTracks(p);
+    const ja = japanese(tracks);
+    // a video without Japanese keeps its captions as they are
+    if (!ja) return;
+    for (const lang of wanted) {
+      if (found.has(`${videoId}/${lang}`) || watchId() !== videoId) continue;
+      // a person's subtitles before the machine's
+      const own = tracks.filter((t) => language(t.languageCode) === lang).sort((a, b) => Number(isAsr(a)) - Number(isAsr(b)))[0];
+      if (own && (!isAsr(own) || lang === 'ja')) await inTurn(() => fetchTrack(p, videoId, own));
+      else if (lang !== 'ja' && translations(p).has(lang)) await inTurn(() => fetchTrack(p, videoId, ja, lang));
+      else if (own) await inTurn(() => fetchTrack(p, videoId, own));
+    }
+  }
+
+  /** What the track menu offers: the video's caption tracks, translations into the wanted languages, and its audio. */
+  function trackList(p: any) {
+    const tracks = captionTracks(p);
+    const subtitles = tracks.map((t) => ({ id: trackId(t), language: language(t.languageCode), label: trackName(t), captions: isAsr(t), machine: isAsr(t) }));
+    const ja = japanese(tracks);
+    const names = translations(p);
+    for (const lang of wanted) {
+      if (lang === 'ja' || !ja || tracks.some((t) => language(t.languageCode) === lang && !isAsr(t)) || !names.has(lang)) continue;
+      subtitles.push({ id: translatedId(trackId(ja), lang), language: lang, label: `${names.get(lang)} (auto-translated)`, captions: true, machine: true });
+    }
+    const current = audioId(p.getAudioTrack?.());
+    const audio = (p.getAvailableAudioTracks?.() ?? []).map((t: any) => ({
+      id: audioId(t), label: audioName(t), language: audioLanguage(t), selected: audioId(t) === current,
+    }));
+    return { subtitles, audio: audio.length > 1 ? audio : [] };
+  }
+  const audioId = (t: any) => text_(t?.getLanguageInfo?.()?.getId?.() ?? t?.id);
+  // ("ja.4", "en-US.10")
+  const audioLanguage = (t: any) => language(text_(t?.getLanguageInfo?.()?.getId?.()).split('.')[0]);
+  const audioName = (t: any) => {
+    const info = t?.getLanguageInfo?.();
+    const name = text_(info?.getName?.()) || audioId(t);
+    return info?.getIsAutoDubbed?.() ? `${name} (auto-dubbed)` : name;
+  };
+
+  async function fetchOne(id: string) {
+    const videoId = watchId();
+    const p = videoId ? await ready(videoId) : null;
+    if (!p || !videoId) return false;
+    const [from, to] = id.split('>');
+    const track = captionTracks(p).find((t) => trackId(t) === from);
+    return track ? inTurn(() => fetchTrack(p, videoId, track, to)) : false;
+  }
+
+  /** The player's own settings, for Mizune's menu, which takes the place of YouTube's. */
+  function playback(p: any) {
+    const levels: string[] = (p.getAvailableQualityLevels?.() ?? []).filter((q: string) => q !== 'auto');
+    const labels: string[] = p.getAvailableQualityLabels?.() ?? [];
+    const preferred = p.getUserPlaybackQualityPreference?.() ?? p.getPreferredQuality?.();
+    return {
+      rates: p.getAvailablePlaybackRates?.() ?? [],
+      rate: p.getPlaybackRate?.() ?? 1,
+      qualities: levels.map((id, i) => ({ id, label: labels[i] ?? id })),
+      // "auto", or the one chosen
+      quality: levels.includes(preferred) ? preferred : 'auto',
+      playing: p.getPlaybackQualityLabel?.() ?? '',
+      autoplay: document.querySelector('.ytp-autonav-toggle-button')?.getAttribute('aria-checked') === 'true',
+      loop: !!p.getLoopVideo?.(),
+    };
+  }
+
+  function setPlayback(p: any, change: any) {
+    if (typeof change.rate === 'number') p.setPlaybackRate?.(change.rate);
+    if (typeof change.quality === 'string') {
+      if (change.quality === 'auto') p.setPlaybackQualityRange?.('auto', 'auto');
+      else p.setPlaybackQualityRange?.(change.quality, change.quality);
+      p.setPlaybackQuality?.(change.quality);
+    }
+    if (typeof change.loop === 'boolean') p.setLoopVideo?.(change.loop);
+    if (typeof change.autoplay === 'boolean') {
+      // as its own switch does, which keeps the choice for the next visit
+      const button = document.querySelector<HTMLElement>('.ytp-autonav-toggle-button');
+      if (button && (button.getAttribute('aria-checked') === 'true') !== change.autoplay) (button.closest('button') ?? button).click();
+      else if (!button) p.setAutonav?.(change.autoplay);
+    }
+  }
+
+  // ---- the rest of YouTube's settings menu ----
+
+  /**
+   * YouTube's settings menu has more than its player says it has (stable volume, ambient mode, a
+   * sleep timer, and more as YouTube adds them), in the viewer's own language. So Mizune's menu
+   * shows what YouTube's does, read from YouTube's menu, opened out of sight; and choosing one
+   * chooses it there. What Mizune has its own way to (quality, speed, subtitles, audio) is left out.
+   */
+  const MENU_HIDDEN = '#movie_player .ytp-settings-menu { opacity: 0 !important; pointer-events: none !important; }';
+  let menuQueue: Promise<unknown> = Promise.resolve();
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  /** Waits until [done], for up to [ms] by the clock (a hidden tab's timers are slow, so not by counting). */
+  async function until(done: () => boolean, ms = 1000) {
+    for (const end = Date.now() + ms; !done() && Date.now() < end; ) await sleep(50);
+    return done();
+  }
+
+  /** Runs [run] with YouTube's settings menu open (and unseen), then closes it. */
+  function withMenu<T>(p: any, run: (menu: HTMLElement) => Promise<T>): Promise<T | null> {
+    const next = menuQueue.then(async () => {
+      const button = p.querySelector('.ytp-settings-button') as HTMLElement | null;
+      // (only while it's seen: a hidden tab's timers are too slow to go through it)
+      if (!button || document.hidden) return null;
+      const style = document.createElement('style');
+      style.textContent = MENU_HIDDEN;
+      document.documentElement.append(style);
+      const menu = () => p.querySelector('.ytp-settings-menu') as HTMLElement | null;
+      const open = () => !!menu() && getComputedStyle(menu()!).display !== 'none';
+      try {
+        if (open()) {
+          button.click();
+          await sleep(250);
+        }
+        button.click();
+        return (await until(() => open() && panelItems(menu()!).length > 0)) ? await run(menu()!) : null;
+      } finally {
+        if (open()) button.click();
+        // (it fades out)
+        setTimeout(() => style.remove(), 400);
+      }
+    });
+    menuQueue = next.catch(() => undefined);
+    return next.catch(() => null);
+  }
+
+  /** The items of the menu's panel showing now. */
+  const panelItems = (menu: HTMLElement) => {
+    const panels = menu.querySelectorAll('.ytp-panel');
+    return [...(panels[panels.length - 1]?.querySelectorAll<HTMLElement>('.ytp-menuitem') ?? [])];
+  };
+  const itemLabel = (item: HTMLElement) => ((item.querySelector('.ytp-menuitem-label') as HTMLElement | null)?.innerText ?? '').replace(/\s*\n+\s*/g, ' · ').trim();
+
+  /** Opens the submenu under [label]; its choices, once they're there. */
+  async function openSubmenu(menu: HTMLElement, label: string): Promise<HTMLElement[] | null> {
+    const item = panelItems(menu).find((i) => itemLabel(i) === label);
+    if (!item) return null;
+    const before = panelItems(menu)[0];
+    item.click();
+    // (the speed's has no items, only a slider)
+    const opened = () => { const items = panelItems(menu); return (items.length > 0 && items[0] !== before) || !!menu.querySelector('.ytp-panel-header'); };
+    return (await until(opened)) ? panelItems(menu) : null;
+  }
+
+  async function readSettings(p: any) {
+    const captions = new Set(captionTracks(p).map(trackName));
+    const audio = new Set((p.getAvailableAudioTracks?.() ?? []).map((t: any) => text_(t.getLanguageInfo?.()?.getName?.())));
+    const qualities: string[] = [p.getPlaybackQualityLabel?.(), ...(p.getAvailableQualityLabels?.() ?? [])].filter(Boolean);
+    return withMenu(p, async (menu) => {
+      const settings: any[] = [];
+      const top = panelItems(menu).map((item) => ({
+        label: itemLabel(item), role: item.getAttribute('role'), checked: item.getAttribute('aria-checked') === 'true',
+        submenu: item.getAttribute('aria-haspopup') === 'true',
+        value: ((item.querySelector('.ytp-menuitem-content') as HTMLElement | null)?.innerText ?? '').trim(),
+      }));
+      for (const item of top) {
+        if (item.role === 'menuitemcheckbox') settings.push({ kind: 'switch', label: item.label, on: item.checked });
+        if (!item.submenu) continue;
+        // Mizune's own: the audio, and the quality, by what they say is playing
+        if (audio.has(item.value) || qualities.some((q) => item.value.includes(q))) continue;
+        const items = await openSubmenu(menu, item.label);
+        if (!items) break;
+        const choices = items.filter((i) => i.getAttribute('role') === 'menuitemradio').map((i) => ({ label: itemLabel(i), selected: i.getAttribute('aria-checked') === 'true' }));
+        const panels = menu.querySelectorAll('.ytp-panel');
+        const panel = panels[panels.length - 1];
+        // and the speed (a slider), and the subtitles (the video's caption tracks)
+        const own = !!panel?.querySelector('[role=slider]') || choices.some((c) => captions.has(c.label) || audio.has(c.label) || qualities.includes(c.label));
+        if (!own && choices.length > 1) settings.push({ kind: 'choices', label: item.label, value: item.value, choices });
+        // back to the top, by closing it and opening it again
+        (p.querySelector('.ytp-settings-button') as HTMLElement).click();
+        await sleep(250);
+        (p.querySelector('.ytp-settings-button') as HTMLElement).click();
+        if (document.hidden || !(await until(() => panelItems(menu).some((i) => itemLabel(i) === item.label)))) break;
+      }
+      return settings;
+    });
+  }
+
+  /** Flips the switch [label], or chooses [choice] under it. */
+  async function chooseSetting(p: any, label: string, choice?: string) {
+    return withMenu(p, async (menu) => {
+      if (choice == null) {
+        const item = panelItems(menu).find((i) => itemLabel(i) === label);
+        item?.click();
+        return !!item;
+      }
+      const items = await openSubmenu(menu, label);
+      const item = items?.find((i) => itemLabel(i) === choice);
+      item?.click();
+      await sleep(100);
+      return !!item;
+    });
+  }
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.data?.source !== CONTENT) return;
+    const { kind, seconds, level, muted } = event.data;
+    if (kind === 'subtitles') {
+      if (Array.isArray(event.data.languages)) wanted = event.data.languages;
+      fetchSubtitles().catch(() => {});
+      return answer(event.data.id, true);
+    }
+    if (kind === 'moreSettings' || kind === 'chooseSetting') {
+      const p = player();
+      if (!p?.getPlayerState) return answer(event.data.id, false);
+      const done = kind === 'moreSettings' ? readSettings(p) : chooseSetting(p, String(event.data.label), event.data.choice);
+      done.then((data) => answer(event.data.id, data != null, data), () => answer(event.data.id, false));
+      return;
+    }
+    if (kind === 'fetchTrack') {
+      fetchOne(event.data.track).then((ok) => answer(event.data.id, ok), () => answer(event.data.id, false));
+      return;
+    }
+    const p = player();
+    if (!p?.getPlayerState) return answer(event.data.id, false);
+    if (kind === 'hasJapanese') {
+      // only once the player has this video, past its adverts
+      const videoId = watchId();
+      const advert = p.classList?.contains('ad-showing') || p.classList?.contains('ad-interrupting');
+      if (!videoId || advert || p.getPlayerResponse?.()?.videoDetails?.videoId !== videoId) return answer(event.data.id, false);
+      return answer(event.data.id, true, !!japanese(captionTracks(p)));
+    }
+    if (kind === 'trackList') return answer(event.data.id, true, trackList(p));
+    if (kind === 'playback') return answer(event.data.id, true, playback(p));
+    if (kind === 'setPlayback') {
+      setPlayback(p, event.data.change ?? {});
+      return answer(event.data.id, true, playback(p));
+    }
+    if (kind === 'audio') {
+      const track = (p.getAvailableAudioTracks?.() ?? []).find((t: any) => audioId(t) === event.data.track);
+      if (!track || !p.setAudioTrack) return answer(event.data.id, false);
+      p.setAudioTrack(track);
+      return answer(event.data.id, true);
+    }
+    if (kind === 'originalAudio') {
+      // YouTube can play a machine's dub by itself; Japanese is to be heard in Japanese
+      const tracks: any[] = p.getAvailableAudioTracks?.() ?? [];
+      const playing = p.getAudioTrack?.();
+      const original = tracks.find((t) => audioLanguage(t) === 'ja' && !t.getLanguageInfo?.()?.getIsAutoDubbed?.());
+      const dubbed = !!playing?.getLanguageInfo?.()?.getIsAutoDubbed?.();
+      if (original && dubbed && audioId(original) !== audioId(playing)) p.setAudioTrack?.(original);
+      return answer(event.data.id, !!original);
+    }
+    if (kind === 'seek') p.seekTo(seconds, true);
+    else if (kind === 'play') p.playVideo();
+    else if (kind === 'pause') p.pauseVideo();
+    else if (kind === 'volume') {
+      if (typeof p.setVolume !== 'function') return answer(event.data.id, false);
+      p.setVolume(Math.round(level * 100));
+      if (muted) p.mute?.();
+      else p.unMute?.();
+    }
+    answer(event.data.id, true);
+  });
+}
+
 async function fetchFirst(urls: string[]): Promise<string | null> {
   for (const url of urls) {
     try {
@@ -503,5 +948,7 @@ if (!window.__mizunePage) {
   } else if (location.hostname.endsWith('crunchyroll.com')) {
     crunchyroll();
     previews(() => location.pathname.match(/\/watch\/([A-Z0-9]+)/)?.[1] ?? null);
+  } else if (location.hostname.endsWith('youtube.com')) {
+    youtube();
   }
 }

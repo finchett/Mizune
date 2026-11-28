@@ -87,15 +87,20 @@ export interface HostError {
 /** The app's default theme, Jade (Themes.kt), for when the app isn't there to say. */
 export const DEFAULT_THEME: NonNullable<Hello['theme']> = { mode: 'auto', family: FAMILIES[0].name, light: FAMILIES[0].light!, dark: FAMILIES[0].dark! };
 
+/** The sites whose players Mizune knows. */
+export type SiteKind = 'netflix' | 'crunchyroll' | 'youtube';
+
 /** A subtitle file a site's page script found, before Mizune has parsed it. */
 export interface FoundTrack {
-  site: 'netflix' | 'crunchyroll';
-  /** Netflix's movie ID or Crunchyroll's episode ID, so a track is only used for its own video. */
+  site: SiteKind;
+  /** The site's ID for the video (Netflix's movie, Crunchyroll's episode), so a track is only used for its own video. */
   videoId: string;
   language: string;
   label: string;
-  /** Closed captions, with sound descriptions; plain subtitles are preferred. */
+  /** Closed captions, with sound descriptions, or (on YouTube) made by machine; plain subtitles are preferred. */
   captions: boolean;
+  /** Made by machine (YouTube's automatic captions, or its translation of a track). */
+  machine?: boolean;
   /** A file name whose extension tells Mizune how to read it. */
   name: string;
   /** Empty when the page couldn't fetch the file itself; then the background fetches [urls]. */
@@ -165,7 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
   audioPadding: 0.3,
   imageHeight: 360,
   imageAnimated: true,
-  sites: ['netflix', 'crunchyroll'],
+  sites: ['netflix', 'crunchyroll', 'youtube'],
   keys: {
     PreviousLine: ['H', 'Left'],
     NextLine: ['L', 'Right'],
@@ -265,7 +270,7 @@ export function blobBase64(blob: Blob): Promise<string> {
 
 /** A show's seasons and episodes, as its site's page had them, for the player's list of episodes. */
 export interface FoundShow {
-  site: 'netflix' | 'crunchyroll';
+  site: SiteKind;
   /** The show's ID on the site. */
   id: string;
   title: string;
@@ -369,7 +374,7 @@ export type ToContent = { type: 'toggle' } | { type: 'tracksChanged' } | { type:
 /** What Mizune's doing in a tab, for the toolbar's popup: answered by the frame with the video. */
 export interface TabStatus {
   type: 'status';
-  site: 'netflix' | 'crunchyroll' | 'other';
+  site: SiteKind | 'other';
   /** On one of the site's pages for watching, rather than browsing. */
   watching: boolean;
   on: boolean;

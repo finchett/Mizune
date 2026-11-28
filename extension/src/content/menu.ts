@@ -3,25 +3,31 @@
 // so each shows behind it, and goes with a click elsewhere or Escape.
 import { EASE } from './motion';
 import { h } from '../dom';
+import { origin } from './origin';
 
 export type MenuItem =
   /** A quiet label over a group, with an optional note at the far end (a key, or how it's used). */
   | { kind: 'group'; label: string; note?: string }
   /** Muted words under a group's label, saying why its choices don't apply. */
   | { kind: 'note'; text: string }
-  /** [folded]: one of a fold's, set in under it. */
-  | { kind: 'choice'; title: string; detail?: string; selected: boolean; folded?: boolean; run: () => void }
+  /** [folded]: one of a fold's, set in under it ([depth]: how many folds in, where it's more than one). */
+  | { kind: 'choice'; title: string; detail?: string; selected: boolean; folded?: boolean; depth?: number; run: () => void }
   /** Two or three choices side by side, as one control. */
   | { kind: 'segments'; options: string[]; selected: number; run: (index: number) => void }
   /** Settings that are on or off, side by side on one line: each an icon and a word, lit while on. */
   | { kind: 'toggles'; toggles: { title: string; icon: string; tip: string; on: boolean; run: (on: boolean) => void }[] }
   /** A setting that's on or off, with a switch at its end. */
-  | { kind: 'switch'; title: string; on: boolean; run: (on: boolean) => void }
+  | { kind: 'switch'; title: string; on: boolean; depth?: number; run: (on: boolean) => void }
   /**
    * The rest of a group's choices, folded away under [title] until it's opened: the folded choices
-   * that follow it, which slide open under it. [id] tells it from the menu's other folds.
+   * that follow it (and switches, and folds of their own, a [depth] further in), which slide open
+   * under it. [id] tells it from the menu's other folds. At its end, how many there are, or
+   * [detail] (the one chosen, say).
    */
-  | { kind: 'fold'; id: string; title: string; count: number; open: boolean; run: () => void };
+  | { kind: 'fold'; id: string; title: string; count: number; open: boolean; run: () => void; detail?: string; depth?: number };
+
+/** How many folds in [item] is. */
+const depthOf = (item: MenuItem) => ('depth' in item && item.depth) || ('folded' in item && item.folded ? 1 : 0);
 
 export class Menu {
   readonly element = h('div', 'menu');
@@ -31,7 +37,11 @@ export class Menu {
   /** Whether each fold was open when it was last drawn, so it slides only as it opens or closes. */
   private folds = new Map<string, boolean>();
 
-  constructor(private onChange: (open: boolean) => void = () => {}) {
+  /**
+   * [within]: where it may go, where that's less than the window (the site's player, in its page,
+   * as it is in the window now).
+   */
+  constructor(private onChange: (open: boolean) => void = () => {}, private within: () => DOMRect | null = () => null) {
     this.element.hidden = true;
     this.onOutside = this.onOutside.bind(this);
     for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'wheel', 'contextmenu']) {
@@ -68,24 +78,32 @@ export class Menu {
     const items = this.build();
     const nodes: HTMLElement[] = [];
     const changed: { row: HTMLElement; body: HTMLElement; open: boolean }[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.kind !== 'fold') {
-        nodes.push(this.item(item, i === 0));
-        continue;
+    // the items from [start] at least [depth] folds in, into [into]; where it stopped
+    const draw = (start: number, into: HTMLElement[], depth: number): number => {
+      let i = start;
+      for (; i < items.length && depthOf(items[i]) >= depth; i++) {
+        const item = items[i];
+        if (item.kind !== 'fold') {
+          into.push(this.item(item, i === 0));
+          continue;
+        }
+        // drawn as it was, then moved on to how it is, so it slides
+        const was = this.folds.get(item.id) ?? item.open;
+        this.folds.set(item.id, item.open);
+        const row = this.item({ ...item, open: was }, i === 0);
+        const body = h('div', was ? 'fold-body open' : 'fold-body');
+        const inner = h('div', 'fold-inner');
+        const within: HTMLElement[] = [];
+        i = draw(i + 1, within, depthOf(item) + 1) - 1;
+        inner.append(...within);
+        body.append(inner);
+        body.inert = !item.open;
+        into.push(row, body);
+        if (was !== item.open) changed.push({ row, body, open: item.open });
       }
-      // drawn as it was, then moved on to how it is, so it slides
-      const was = this.folds.get(item.id) ?? item.open;
-      this.folds.set(item.id, item.open);
-      const row = this.item({ ...item, open: was }, i === 0);
-      const body = h('div', was ? 'fold-body open' : 'fold-body');
-      const inner = h('div', 'fold-inner');
-      for (let next = items[i + 1]; next?.kind === 'choice' && next.folded; next = items[i + 1]) inner.append(this.item(items[++i], false));
-      body.append(inner);
-      body.inert = !item.open;
-      nodes.push(row, body);
-      if (was !== item.open) changed.push({ row, body, open: item.open });
-    }
+      return i;
+    };
+    draw(0, nodes, 0);
     this.element.replaceChildren(...nodes);
     this.element.scrollTop = scroll;
     if (changed.length) {
@@ -132,11 +150,17 @@ export class Menu {
   private place() {
     const a = this.anchor!.getBoundingClientRect();
     const s = this.element.style;
-    const below = a.top < innerHeight / 2;
-    s.right = `${Math.max(8, innerWidth - a.right - 6)}px`;
-    s.top = below ? `${a.bottom + 6}px` : '';
-    s.bottom = below ? '' : `${innerHeight - a.top + 6}px`;
-    s.maxHeight = `${Math.max(120, (below ? innerHeight - a.bottom : a.top) - 18)}px`;
+    // in the window, and in what it's kept within (of that, what's in the window)
+    const box = this.within();
+    const top = Math.max(0, box?.top ?? 0), bottom = Math.min(innerHeight, box?.bottom ?? innerHeight);
+    const below = a.top < (top + bottom) / 2;
+    // from the overlay's corner, which (where it's in the page) is the page's; its right and bottom
+    // edges are that corner's too (see origin)
+    const o = origin();
+    s.right = `${Math.max(8, innerWidth - a.right - 6) - (innerWidth - o.x - o.width)}px`;
+    s.top = below ? `${a.bottom + 6 - o.y}px` : '';
+    s.bottom = below ? '' : `${innerHeight - a.top + 6 - (innerHeight - o.y - o.height)}px`;
+    s.maxHeight = `${Math.max(120, (below ? bottom - a.bottom : a.top - top) - 18)}px`;
     s.transformOrigin = below ? 'top right' : 'bottom right';
   }
 
@@ -147,6 +171,14 @@ export class Menu {
   }
 
   private item(item: MenuItem, first: boolean): HTMLElement {
+    const row = this.row(item, first);
+    // further in for each fold it's in, past the first (which .folded is)
+    const depth = depthOf(item);
+    if (depth > 1 || (depth === 1 && item.kind !== 'choice')) row.style.paddingLeft = `${10 + 12 * depth}px`;
+    return row;
+  }
+
+  private row(item: MenuItem, first: boolean): HTMLElement {
     switch (item.kind) {
       case 'group': {
         const row = h('div', first ? 'group first' : 'group');
@@ -181,7 +213,7 @@ export class Menu {
       case 'fold': {
         const row = h('button', item.open ? 'choice fold open' : 'choice fold');
         row.setAttribute('aria-expanded', String(item.open));
-        row.append(h('span', 'title', item.title), h('span', 'detail', String(item.count)), h('span', 'chevron', '›'));
+        row.append(h('span', 'title', item.title), h('span', 'detail', item.detail ?? String(item.count)), h('span', 'chevron', '›'));
         row.addEventListener('click', () => {
           item.run();
           this.refresh();
@@ -247,8 +279,8 @@ export const MENU_STYLES = `
 .menu .choice .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .menu .choice .detail { font-size: 12px; color: var(--onSurfaceVariant); white-space: nowrap; }
 .menu .choice .tick { width: 14px; flex: none; text-align: center; font-weight: 500; color: var(--primary); }
-/* a setting with a switch; under the segments, it keeps clear of them */
-.menu .segments + .switch-row { margin-top: 6px; }
+/* a row under the segments, or the toggles, keeps clear of them */
+.menu :is(.segments, .toggles) + .choice { margin-top: 6px; }
 .menu .switch-row .switch {
   position: relative; width: 32px; height: 18px; flex: none; border-radius: 9px;
   background: color-mix(in srgb, var(--onSurface) 22%, transparent); transition: background-color 150ms ${EASE};

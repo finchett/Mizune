@@ -6,6 +6,7 @@ import { CAP_LABELS, capLabel } from './keys';
 import { ICONS } from './controls';
 import { ease, EASE } from './motion';
 import { h, svg } from '../dom';
+import { origin, placingInPage } from './origin';
 import { sceneElement, SCENE_STYLES } from '../scene';
 
 export interface TutorialOptions {
@@ -334,6 +335,21 @@ export class Tutorial {
 
   get isOpen() {
     return !this.element.hidden;
+  }
+
+  /** Over the whole window, from the overlay's corner (see origin); every frame while it's up. */
+  place() {
+    const s = this.element.style;
+    if (!placingInPage()) {
+      for (const prop of ['left', 'top', 'width', 'height']) s.removeProperty(prop);
+      return;
+    }
+    const o = origin();
+    s.left = `${-o.x}px`;
+    s.top = `${-o.y}px`;
+    // (the window less its scrollbars)
+    s.width = `${document.documentElement.clientWidth}px`;
+    s.height = `${document.documentElement.clientHeight}px`;
   }
 
   show(options: TutorialOptions) {

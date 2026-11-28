@@ -11,7 +11,7 @@ import { Overlay } from './overlay';
 import { Previews } from './previews';
 import { CARD_GAP, clampFraction, DEFAULT_FRACTION, Panel } from './panel';
 import { NoAudio, startRecording } from './recorder';
-import { largestVideo, Site, siteFor, SiteTracks } from './site';
+import { largestVideo, Playback, Site, siteFor, SiteSetting, SiteTracks } from './site';
 import { Tutorial } from './tutorial';
 
 declare global {
@@ -156,7 +156,7 @@ class Session {
     });
     if (this.site.ownControls) {
       this.episodes = new Episodes({
-        back: () => this.site.ownControls?.back(),
+        back: this.site.ownControls.back ? () => this.site.ownControls?.back?.() : undefined,
         open: (url) => background({ type: 'openPage', url }).catch(() => {}),
         listOpen: (open) => {
           if (open) this.menu.close();
@@ -186,7 +186,9 @@ class Session {
       this.overlay.mount(this.controls.element);
       this.overlay.mount(this.controls.backCorner);
     }
-    if (this.site.makeRoom) {
+    // where Mizune's player is a box in the site's page (YouTube's), it all scrolls with the page
+    this.overlay.inPage(!!this.site.stage);
+    if (this.site.makeRoom || this.site.stage) {
       this.panel = new Panel({
         point: (index) => this.lookUp(index),
         select: (start, end) => this.lookUp(start, end - start),
@@ -217,7 +219,7 @@ class Session {
     }).catch(() => {});
     this.menu = new Menu((open) => {
       if (this.controls) this.controls.menuOpen = open || !!this.episodes?.isOpen;
-    });
+    }, () => this.site.stage?.() ?? null);
     this.overlay.mountBeside(this.menu.element);
     if (this.episodes) this.overlay.mountBeside(this.episodes.list);
     this.overlay.mountBeside(this.tutorial.element);
@@ -230,7 +232,7 @@ class Session {
     this.onDrop = this.onDrop.bind(this);
   }
 
-  /** Netflix and Crunchyroll start by themselves once a Japanese file turns up. */
+  /** Netflix, Crunchyroll and YouTube start by themselves once a Japanese file turns up. */
   get automatic() {
     return this.site.kind !== 'other';
   }
@@ -343,12 +345,15 @@ class Session {
     this.closeLookup();
     this.overlay.detach();
     this.site.hideOwnSubtitles(false);
+    this.site.settle?.(false);
     this.site.ownControls?.hide(false);
     this.site.ownControls?.hideCursor(false);
     this.menu.close();
     this.tutorial.close();
     this.panel?.show(false, false);
     this.panelPlaced = false;
+    this.interlude = false;
+    this.shownVideoId = null;
     this.site.makeRoom?.(0);
     this.site.placeVideo?.(null);
     this.site.fill(false);
@@ -412,6 +417,9 @@ class Session {
    * What show this is, with its seasons and episodes, as the page found it, for the episode list;
    * the page's asked once a video if it hasn't said.
    */
+  /** The show what's playing is in, as loadShow last found it. */
+  private show: FoundShow | null = null;
+
   async loadShow() {
     if (!this.episodes) return;
     const shows: FoundShow[] = await background({ type: 'shows' }).catch(() => []);
@@ -423,6 +431,7 @@ class Session {
     }
     const id = this.site.videoId();
     const show = (id && [...this.knownShows.values()].reverse().find((s) => showHas(s, id))) || null;
+    this.show = show;
     this.episodes.set(this.site.ownControls?.name ?? '', show, id, this.site.title());
     if (!show && id && this.askedShow !== id) {
       this.askedShow = id;
@@ -464,6 +473,8 @@ class Session {
 
     if (!sameStudy) {
       this.primary = study ? { cues: await this.parse(study), label: study.label, fromFile: false, key: trackKey(study) } : null;
+      // with Japanese to study, it's heard in Japanese, not a machine's dub (YouTube's)
+      if (this.primary) this.site.preferOriginalAudio?.();
       this.title = null;
       this.offset = 0;
       this.lineIndex = -1;
@@ -488,7 +499,8 @@ class Session {
 
   /** The first time there are lines: how to work the player, over it, paused until it's done. */
   private async maybeShowTutorial() {
-    if (this.tutorialAsked || !this.hello) return;
+    // (not over an advert: it waits for the video, see stepAside)
+    if (this.tutorialAsked || !this.hello || this.interlude) return;
     this.tutorialAsked = true;
     const { tutorialSeen } = await api.storage.local.get('tutorialSeen').catch(() => ({ tutorialSeen: true }));
     if (tutorialSeen || !this.on || !this.hello) return;
@@ -527,6 +539,103 @@ class Session {
       if (list) this.siteTracks = list;
       this.menu.refresh();
     });
+    this.site.playback?.().then((playback) => {
+      this.playback = playback;
+      this.menu.refresh();
+    });
+    this.site.moreSettings?.().then((settings) => {
+      this.moreSettings = settings;
+      this.menu.refresh();
+    });
+  }
+
+  /** The rest of the site player's own menu, as it last said. */
+  private moreSettings: SiteSetting[] | null = null;
+
+  /** Changes one of those, shown at once, then as the player has it. */
+  private chooseSetting(setting: SiteSetting, choice?: string) {
+    if (setting.kind === 'switch') setting.on = !setting.on;
+    else setting.choices.forEach((c) => (c.selected = c.label === choice));
+    this.menu.refresh();
+    this.site.chooseSetting?.(setting.label, choice).then(() => {
+      if (!this.menu.isOpen) return;
+      this.site.moreSettings?.().then((settings) => {
+        if (settings && this.menu.isOpen) {
+          this.moreSettings = settings;
+          this.menu.refresh();
+        }
+      });
+    });
+  }
+
+  /** Those, in the site's own words, one fold in: its switches, then its lists, folded in turn. */
+  private moreSettingsItems(): MenuItem[] {
+    const settings = this.moreSettings ?? [];
+    const items: MenuItem[] = [];
+    for (const s of settings) if (s.kind === 'switch') items.push({ kind: 'switch', title: s.label, on: s.on, depth: 1, run: () => this.chooseSetting(s) });
+    for (const s of settings) {
+      if (s.kind !== 'choices') continue;
+      const id = `site:${s.label}`;
+      const open = this.unfolded.has(id);
+      items.push({ kind: 'fold', id, title: s.label, count: s.choices.length, detail: s.choices.find((c) => c.selected)?.label ?? s.value, open, depth: 1, run: () => this.flipFold(id) });
+      items.push(...s.choices.map((c): MenuItem => ({ kind: 'choice', title: c.label, selected: c.selected, depth: 2, run: () => this.chooseSetting(s, c.label) })));
+    }
+    return items;
+  }
+
+  /** The site player's own settings, as it last said, where Mizune's menu takes the place of its. */
+  private playback: Playback | null = null;
+
+  /** Changes one of the site player's settings, shown at once, then as the player has it. */
+  private changePlayback(change: Partial<Pick<Playback, 'rate' | 'quality' | 'autoplay' | 'loop'>>) {
+    if (this.playback) this.playback = { ...this.playback, ...change };
+    this.site.setPlayback?.(change).then((playback) => {
+      if (playback) this.playback = playback;
+      this.menu.refresh();
+    });
+  }
+
+  /**
+   * The site player's settings, as its own menu has them (YouTube's): its quality, with the
+   * picture; then its speed, playing the next video by itself, and playing this one again.
+   */
+  private playbackItems(): { picture: MenuItem[]; playback: MenuItem[] } {
+    const p = this.playback;
+    if (!p) return { picture: [], playback: [] };
+    const picture: MenuItem[] = [];
+    if (p.qualities.length) {
+      const auto = p.quality === 'auto';
+      const chosen = p.qualities.find((q) => q.id === p.quality)?.label;
+      const open = this.unfolded.has('quality');
+      picture.push(
+        { kind: 'fold', id: 'quality', title: 'Quality', count: p.qualities.length, detail: auto ? (p.playing ? `Auto (${p.playing})` : 'Auto') : chosen, open, run: () => this.flipFold('quality') },
+        { kind: 'choice', title: 'Auto', selected: auto, folded: true, run: () => this.changePlayback({ quality: 'auto' }) },
+        ...p.qualities.map((q): MenuItem => ({ kind: 'choice', title: q.label, selected: q.id === p.quality, folded: true, run: () => this.changePlayback({ quality: q.id }) })),
+      );
+    }
+    const playback: MenuItem[] = [{ kind: 'group', label: 'Playback' }];
+    if (p.rates.length > 1) {
+      const rate = (r: number) => (r === 1 ? 'Normal' : `${r}×`);
+      playback.push(
+        { kind: 'fold', id: 'speed', title: 'Speed', count: p.rates.length, detail: rate(p.rate), open: this.unfolded.has('speed'), run: () => this.flipFold('speed') },
+        ...p.rates.map((r): MenuItem => ({ kind: 'choice', title: rate(r), selected: r === p.rate, folded: true, run: () => this.changePlayback({ rate: r }) })),
+      );
+    }
+    // the rest of the player's settings, folded away, there being so many
+    const more: MenuItem[] = [
+      { kind: 'switch', title: 'Autoplay', on: p.autoplay, depth: 1, run: (on) => this.changePlayback({ autoplay: on }) },
+      { kind: 'switch', title: 'Loop', on: p.loop, depth: 1, run: (on) => this.changePlayback({ loop: on }) },
+      ...this.moreSettingsItems(),
+    ];
+    const id = 'site';
+    const count = more.filter((item) => 'depth' in item && item.depth === 1).length;
+    playback.push({ kind: 'fold', id, title: `More from ${this.site.ownControls?.name ?? 'the player'}`, count, open: this.unfolded.has(id), run: () => this.flipFold(id) }, ...more);
+    return { picture, playback };
+  }
+
+  private flipFold(group: string) {
+    if (this.unfolded.has(group)) this.unfolded.delete(group);
+    else this.unfolded.add(group);
   }
 
   /**
@@ -545,6 +654,8 @@ class Session {
         ],
       },
     ];
+    const playback = this.playbackItems();
+    items.push(...playback.picture, ...playback.playback);
     const audio = this.siteTracks?.audio ?? [];
     if (audio.length) {
       items.push({ kind: 'group', label: 'Audio' });
@@ -564,8 +675,18 @@ class Session {
     // the site's own list where it gives one, else the files found so far
     const id = this.site.videoId();
     const tracks = new Map<string, string>();
-    for (const t of this.siteTracks?.subtitles ?? []) if (!tracks.has(trackKey(t))) tracks.set(trackKey(t), t.label);
-    if (!tracks.size) this.foundTracks.filter((t) => !id || t.videoId === id).forEach((t) => tracks.set(trackKey(t), t.label));
+    // (made by machine: YouTube's automatic captions, and its translations)
+    const machine = new Set<string>();
+    for (const t of this.siteTracks?.subtitles ?? []) {
+      if (!tracks.has(trackKey(t))) tracks.set(trackKey(t), t.label);
+      if (t.machine) machine.add(trackKey(t));
+    }
+    if (!tracks.size) {
+      this.foundTracks.filter((t) => !id || t.videoId === id).forEach((t) => {
+        tracks.set(trackKey(t), t.label);
+        if (t.machine) machine.add(trackKey(t));
+      });
+    }
     if (this.primary?.fromFile) tracks.set('file', this.primary.label);
     if (!tracks.size) return items;
     const detail = (key: string) => (this.fetching.has(key) ? 'Getting it…' : undefined);
@@ -577,8 +698,8 @@ class Session {
       const selected = key === 'file' ? !!this.primary?.fromFile : !this.primary?.fromFile && this.primary?.key === key;
       return { key, choice: { kind: 'choice', title: label, detail: detail(key), selected, run: () => key !== 'file' && this.chooseTracks({ study: key }) } as MenuItem };
     });
-    // Japanese (and a file of its own) first; the rest folded away
-    this.foldedList(items, 'study', study, (key) => key === 'file' || language(key) === 'ja');
+    // Japanese (and a file of its own) first, a person's; the rest folded away, the machine's with them
+    this.foldedList(items, 'study', study, (key) => key === 'file' || (language(key) === 'ja' && !machine.has(key)), machine);
 
     items.push({ kind: 'group', label: 'Translation', note: 'Hold to peek' });
     items.push({ kind: 'choice', title: 'None', selected: !this.secondary, run: () => this.chooseTracks({ translation: 'none' }) });
@@ -588,7 +709,7 @@ class Session {
     // the peek language first, then Japanese (its captions, say); the rest folded away
     const first = (key: string) => (peek != null && language(key) === peek ? 0 : language(key) === 'ja' ? 1 : 2);
     translations.sort((a, b) => first(a.key) - first(b.key));
-    this.foldedList(items, 'translation', translations, (key) => first(key) < 2);
+    this.foldedList(items, 'translation', translations, (key) => first(key) < 2 && !machine.has(key), machine);
     return items;
   }
 
@@ -597,12 +718,14 @@ class Session {
 
   /**
    * [list]'s choices into [items]: those [shown] says, then the rest under Other languages, folded
-   * away unless it's been opened or one of them is chosen. With only a few others, they're all shown.
+   * away unless it's been opened or one of them is chosen. With only a few others, they're all shown,
+   * unless they're [machine] made, which are always folded away (as Other subtitles, then).
    */
-  private foldedList(items: MenuItem[], group: string, list: { key: string; choice: MenuItem }[], shown: (key: string) => boolean) {
+  private foldedList(items: MenuItem[], group: string, list: { key: string; choice: MenuItem }[], shown: (key: string) => boolean, machine = new Set<string>()) {
     const main = list.filter((t) => shown(t.key));
     const rest = list.filter((t) => !shown(t.key));
-    if (rest.length <= 2 || !main.length) {
+    const made = rest.some((t) => machine.has(t.key));
+    if ((rest.length <= 2 && !made) || !main.length) {
       items.push(...list.map((t) => t.choice));
       return;
     }
@@ -610,8 +733,8 @@ class Session {
     const chosen = rest.some((t) => t.choice.kind === 'choice' && t.choice.selected);
     const open = chosen || this.unfolded.has(group);
     items.push({
-      kind: 'fold', id: group, title: 'Other languages', count: rest.length, open,
-      run: () => (this.unfolded.has(group) ? this.unfolded.delete(group) : this.unfolded.add(group)),
+      kind: 'fold', id: group, title: made ? 'Other subtitles' : 'Other languages', count: rest.length, open,
+      run: () => this.flipFold(group),
     });
     // there while it's folded too, so it can slide open
     items.push(...rest.map((t) => ({ ...t.choice, folded: true }) as MenuItem));
@@ -694,7 +817,13 @@ class Session {
     // off the video's page (Netflix's own back, say): off until the next one
     if (!this.site.watching()) return this.leave();
     this.frame = requestAnimationFrame(() => this.tick());
+    if (this.stepAside()) return;
+    this.site.settle?.(true);
     const video = this.site.video();
+    // the site's player, where Mizune's takes its box in the page rather than the window
+    const stage = this.site.stage?.() ?? null;
+    this.panel?.setStage(stage);
+    if (this.tutorial.isOpen) this.tutorial.place();
     this.placePanel(!!video?.isConnected);
     if (!video || !video.isConnected) {
       this.updateControls(null);
@@ -706,21 +835,28 @@ class Session {
     if (!video.paused) this.stoppedAtLine = false;
     // the site's own controls have the picture as the site has it
     this.site.fill(this.fill);
+    // and its own subtitles are hidden while Mizune has lines to show (turned off and on again too)
+    this.site.hideOwnSubtitles(!!this.primary?.cues.length);
     this.overlay.attach();
     // with the panel beside it, the video has the window less the panel, which follows the panel as
     // it slides, where the site only catches up with its video after; with rounded corners, as in
     // the app, it's a card in that, stood in from the edges
     const gap = this.rounded ? CARD_GAP : 0;
     // (on whole pixels, as the site holds the picture: see placeVideo)
-    const area = this.panel ? new DOMRect(gap, gap, Math.round(innerWidth - this.panel.width - 2 * gap), innerHeight - 2 * gap) : null;
+    const box = stage ?? new DOMRect(0, 0, innerWidth, innerHeight);
+    const area = this.panel ? new DOMRect(box.left + gap, box.top + gap, Math.round(box.width - this.panel.width - 2 * gap), box.height - 2 * gap) : null;
     this.site.placeVideo?.(area, this.panelOut);
     this.overlay.place(area ?? video.getBoundingClientRect());
-    this.overlay.card(this.rounded ? area : null);
+    this.overlay.card(this.rounded ? area : null, stage);
     this.updateControls(video);
     // the next episode plays in the same page
     const videoId = this.site.videoId();
+    // (the site can name the next video a moment after it's on)
+    this.episodes?.set(this.site.ownControls?.name ?? '', this.show, videoId, this.site.title());
     if (videoId !== this.shownVideoId) {
+      const was = this.shownVideoId;
       this.shownVideoId = videoId;
+      if (was && videoId) this.checkJapanese(videoId);
       if (this.primary && !this.primary.fromFile) this.loadTracks();
     }
     const cues = this.primary?.cues;
@@ -766,6 +902,47 @@ class Session {
     this.overlay.showLine(cue.text, this.lineSize(video), highlight, peek);
   }
 
+  /** The site's playing something else in its player (an advert): its own controls are for that. */
+  private interlude = false;
+
+  /**
+   * While the site's player plays something else (an advert), Mizune steps aside, the site's
+   * controls back for it, and comes back after. Whether it's aside now.
+   */
+  private stepAside(): boolean {
+    const aside = !!this.site.interlude?.();
+    if (aside === this.interlude) return aside;
+    this.interlude = aside;
+    this.site.ownControls?.hide(!aside);
+    if (aside) {
+      this.menu.close();
+      this.episodes?.close();
+      this.closeLookup();
+      this.overlay.detach();
+      this.site.ownControls?.hideCursor(false);
+      this.site.placeVideo?.(null);
+      this.panel?.show(false, false);
+    }
+    // back from it, the next frame puts it all back
+    else if (this.primary?.cues.length) this.maybeShowTutorial();
+    return aside;
+  }
+
+  /**
+   * On to another video in the same page (YouTube's autoplay, say) without Japanese captions,
+   * Mizune goes, as it would never have come up there; and comes back by itself where there's Japanese.
+   */
+  private async checkJapanese(videoId: string) {
+    if (!this.site.japanese || this.primary?.fromFile) return;
+    for (let tries = 0; tries < 120 && this.on && this.site.videoId() === videoId; tries++) {
+      const japanese = await this.site.japanese();
+      if (!this.on || this.site.videoId() !== videoId) return;
+      if (japanese === true) return;
+      if (japanese === false) return this.leave();
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
   /** The app's size, a little bigger in full screen and smaller in a small player. */
   private lineSize(video: HTMLVideoElement) {
     const base = this.hello?.lineSize ?? 30;
@@ -778,7 +955,7 @@ class Session {
    * Whether the study panel is out: on a site with room for it, unless it's been put away.
    */
   private get panelOut() {
-    return !!this.panel && this.on && !!this.hello && !this.panelHidden;
+    return !!this.panel && this.on && !!this.hello && !this.panelHidden && !this.interlude;
   }
 
   /** Shows the panel or puts it away, and has the site's player make room for it. */
@@ -916,6 +1093,7 @@ class Session {
   }
 
   private toggleFullscreen() {
+    if (this.site.toggleFullscreen) return this.site.toggleFullscreen();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else this.site.fullscreenTarget()?.requestFullscreen().catch(() => {});
   }

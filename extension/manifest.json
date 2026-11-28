@@ -41,6 +41,7 @@
     "*://*.netflix.com/*",
     "*://*.nflxvideo.net/*",
     "*://*.crunchyroll.com/*",
+    "*://*.youtube.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],
@@ -55,7 +56,8 @@
     {
       "matches": [
         "*://*.netflix.com/*",
-        "*://*.crunchyroll.com/*"
+        "*://*.crunchyroll.com/*",
+        "*://*.youtube.com/*"
       ],
       "js": [
         "page.js"
@@ -67,7 +69,8 @@
     {
       "matches": [
         "*://*.netflix.com/*",
-        "*://*.crunchyroll.com/*"
+        "*://*.crunchyroll.com/*",
+        "*://*.youtube.com/*"
       ],
       "js": [
         "content.js"

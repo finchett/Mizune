@@ -170,7 +170,7 @@ function sitesStep(): Child[] {
     body('Pick the sites you watch on. They’re the shortcuts in Mizune’s toolbar button, a click away.'),
     gap(),
     tiles,
-    h('div', 'small-note', 'Mizune reads Netflix’s and Crunchyroll’s Japanese subtitles itself. On YouTube, for now, it needs a subtitle file dropped on the video. Change these any time in the settings.'),
+    h('div', 'small-note', 'Mizune reads the Japanese subtitles on Netflix and Crunchyroll, and the Japanese captions on YouTube, itself. Change these any time in the settings.'),
   ];
 }
 

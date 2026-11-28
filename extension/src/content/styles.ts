@@ -18,7 +18,8 @@ export const STYLES = `
   box-shadow: 0 0 0 100vmax var(--gutter);
 }
 .frame[hidden] { display: none; }
-.root.no-cursor, .root.no-cursor * { cursor: none !important; }
+/* over the video, not the panel beside it, which the pointer's still being used for */
+.root.no-cursor, .root.no-cursor *:not(.panel, .panel *) { cursor: none !important; }
 .stack {
   position: absolute; left: 40px; right: 40px; bottom: var(--rest, 32px);
   display: flex; flex-direction: column; align-items: center; transition: bottom 0.3s ${EASE};

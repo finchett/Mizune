@@ -5,10 +5,11 @@
 import { FoundEpisode, FoundSeason, FoundShow } from '../shared';
 import { EASE } from './motion';
 import { h } from '../dom';
+import { origin } from './origin';
 
 export interface EpisodeEvents {
-  /** Leaves the video, as the site's own back button. */
-  back(): void;
+  /** Leaves the video, as the site's own back button; without it, there's no way back in the bar. */
+  back?(): void;
   /** Goes to an episode on the site. */
   open(url: string): void;
   /** The list opened or closed, which keeps the controls up while it's open. */
@@ -92,7 +93,7 @@ export class Episodes {
     const element = h('div', 'episode-pill');
     const leave = h('button', 'ep-leave');
     const show = h('button', 'ep-show');
-    leave.addEventListener('click', () => this.events.back());
+    leave.addEventListener('click', () => this.events.back?.());
     show.addEventListener('click', () => this.toggle(show));
     // nothing in it keeps the focus, which Space would press again
     element.addEventListener('mousedown', (e) => e.preventDefault());
@@ -133,6 +134,7 @@ export class Episodes {
     // as the show comes in, the bar grows to it, rather than jumping
     const before = element.isConnected ? element.getBoundingClientRect().width : 0;
     const hadShow = !show.hidden;
+    leave.hidden = !this.events.back;
     leave.innerHTML = CHEVRON_LEFT;
     leave.append(h('span', undefined, this.site || 'Back'));
     leave.title = this.site ? `Back to ${this.site}` : 'Back';
@@ -285,8 +287,10 @@ export class Episodes {
     const top = bar.top - WRAP;
     s.width = `${width}px`;
     // its edge just outside the bar's, even where the bar is close to the window's
-    s.left = `${Math.max(Math.min(8, bar.left - WRAP), Math.min(bar.left - WRAP, innerWidth - width - 8))}px`;
-    s.top = `${top}px`;
+    // (from the overlay's corner: see origin)
+    const o = origin();
+    s.left = `${Math.max(Math.min(8, bar.left - WRAP), Math.min(bar.left - WRAP, innerWidth - width - 8)) - o.x}px`;
+    s.top = `${top - o.y}px`;
     s.maxHeight = `${Math.max(200, Math.min(600, innerHeight - top - 12))}px`;
   }
 
@@ -399,7 +403,7 @@ export const EPISODE_STYLES = `
 /* the chevron in line with the play button under it */
 .episode-pill .ep-leave { flex: none; gap: 3px; padding: 0 8px 0 11px; }
 .episode-pill .ep-show { flex: 0 1 auto; min-width: 0; gap: 7px; padding: 0 8px; }
-.episode-pill .ep-show[hidden] { display: none; }
+.episode-pill :is(.ep-show, .ep-leave)[hidden] { display: none; }
 .episode-pill .ep-show:disabled { cursor: default; }
 .episode-pill .ep-series { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--ep-strong); max-width: 220px; }
 .episode-pill .ep-episode { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ep-dim); max-width: 260px; }

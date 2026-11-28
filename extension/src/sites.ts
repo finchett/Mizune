@@ -17,11 +17,10 @@ export interface WatchSite {
 export const WATCH_SITES: WatchSite[] = [
   { id: 'netflix', name: 'Netflix', url: 'https://www.netflix.com/browse', colour: '#E50914', note: 'Comes up by itself', logo: 'sites/netflix.png' },
   { id: 'crunchyroll', name: 'Crunchyroll', url: 'https://www.crunchyroll.com/', colour: '#F47521', note: 'Comes up by itself', logo: 'sites/crunchyroll.png' },
-  // its captions aren't read yet, so it's not one of the sites shown unless it's chosen
-  { id: 'youtube', name: 'YouTube', url: 'https://www.youtube.com/', colour: '#FF0033', note: 'With a subtitle file for now', logo: 'sites/youtube.png' },
+  { id: 'youtube', name: 'YouTube', url: 'https://www.youtube.com/', colour: '#FF0033', note: 'Comes up with Japanese captions', logo: 'sites/youtube.png' },
 ];
 
-export const DEFAULT_SITES = ['netflix', 'crunchyroll'];
+export const DEFAULT_SITES = ['netflix', 'crunchyroll', 'youtube'];
 
 /** The chosen sites, in the list's order. */
 export const chosenSites = (ids: string[]) => WATCH_SITES.filter((s) => ids.includes(s.id));
