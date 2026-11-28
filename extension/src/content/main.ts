@@ -437,7 +437,11 @@ class Session {
   async loadTracks(asked = false) {
     this.loadShow();
     if (!this.hello || this.primary?.fromFile) return;
-    const found: FoundTrack[] = await background({ type: 'tracks' });
+    // the background forgets them when the browser puts it to sleep (after half a minute idle), and
+    // the site won't download a file it has again: so what this page heard of stays here too
+    const fromBackground: FoundTrack[] = await background({ type: 'tracks' }).catch(() => []);
+    const same = (a: FoundTrack, b: FoundTrack) => a.videoId === b.videoId && a.language === b.language && a.captions === b.captions;
+    const found = [...this.foundTracks.filter((t) => !fromBackground.some((b) => same(t, b))), ...fromBackground].slice(-40);
     this.foundTracks = found;
     const id = this.site.videoId();
     const mine = found.filter((t) => !id || t.videoId === id);
