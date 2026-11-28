@@ -56,6 +56,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.input.key.Key
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -88,6 +89,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -119,10 +121,13 @@ import app.mizune.dictionary.LookupResult
 import app.mizune.dictionary.TermEntry
 import app.mizune.library.formatTime
 import app.mizune.subs.SubtitleTrack
+import app.mizune.subs.SubtitleFiles
 import app.mizune.subs.detail
 import app.mizune.subs.shortName
 import app.mizune.ui.Cog
 import app.mizune.ui.FullscreenIcon
+import app.mizune.ui.FrameIcon
+import app.mizune.ui.FillIcon
 import app.mizune.ui.PanelIcon
 import app.mizune.ui.QuietArea
 import app.mizune.ui.Scrubber
@@ -143,10 +148,13 @@ import kotlinx.coroutines.withContext
 import java.awt.Cursor
 import java.io.File
 import app.mizune.ui.MenuGroup
+import app.mizune.ui.MenuToggle
+import app.mizune.ui.MenuToggles
+import app.mizune.ui.MenuFold
+import app.mizune.ui.MenuFoldBody
 import app.mizune.ui.MenuNote
 import app.mizune.ui.MenuChoice
 import app.mizune.ui.MenuDisclosure
-import app.mizune.ui.MenuSegments
 
 /** Keyboard actions the window forwards to the player. */
 class PlayerKeys {
@@ -1078,6 +1086,8 @@ private fun TrackMenu(
     val primary by session.primary.collectAsState()
     val secondary by session.secondary.collectAsState()
     var open by remember { mutableStateOf(false) }
+    // which groups' other languages have been unfolded, kept while the player's up
+    val unfolded = remember { mutableStateMapOf<String, Boolean>() }
     fun show(value: Boolean) {
         open = value
         onMenu(value)
@@ -1094,24 +1104,68 @@ private fun TrackMenu(
             @Composable
             fun item(title: String, selected: Boolean, detail: String? = null, onClick: () -> Unit) =
                 MenuChoice(title, selected, detail, onClick = onClick)
+            @Composable
+            fun <T> folded(group: String, list: List<T>, shown: (T) -> Boolean, selected: (T) -> Boolean, row: @Composable (T) -> Unit) =
+                FoldedChoices(list, shown, selected, unfolded[group] == true, { unfolded[group] = unfolded[group] != true }, row)
             MenuGroup("Picture", note = "Z", first = true)
-            MenuSegments(listOf("Whole picture", "Fill the area"), if (settings.videoFill) 1 else 0) {
-                settings.updateVideoFill(it == 1)
-            }
+            MenuToggles(
+                listOf(
+                    MenuToggle("Fill", settings.videoFill, { FillIcon(it) }, settings::updateVideoFill),
+                    MenuToggle("Frame", settings.roundedCorners, { FrameIcon(it) }, settings::updateRoundedCorners),
+                ),
+            )
             if (audioTracks.isNotEmpty()) {
                 MenuGroup("Audio")
-                audioTracks.forEach { track -> item(track.name, track.id == audioTrack, track.detail) { session.selectAudio(track) } }
+                // Japanese first; the dubs folded away
+                folded("audio", audioTracks, { SubtitleFiles.codeForTag(it.language) == "ja" }, { it.id == audioTrack }) { track ->
+                    item(track.name, track.id == audioTrack, track.detail) { session.selectAudio(track) }
+                }
             }
             if (tracks.isEmpty()) return@PlayerMenu
             MenuGroup("Subtitles to study")
-            tracks.forEach { track -> item(track.shortName, track === primary, track.detail) { session.selectPrimary(track) } }
+            // Japanese first; the rest folded away
+            folded("study", tracks, { SubtitleFiles.isJapanese(it) }, { it === primary }) { track ->
+                item(track.shortName, track === primary, track.detail) { session.selectPrimary(track) }
+            }
             MenuGroup("Translation", note = "Hold to peek")
             item("None", secondary == null) { session.selectSecondary(null) }
-            tracks.filter { it !== primary }.forEach { track ->
+            // the peek language first, then Japanese (to read along in, say); the rest folded away
+            val peek = settings.peekLanguage
+            fun rank(track: SubtitleTrack) = when (SubtitleFiles.effectiveLanguage(track)) {
+                peek -> 0
+                "ja" -> 1
+                else -> 2
+            }
+            folded("translation", tracks.filter { it !== primary }.sortedBy(::rank), { rank(it) < 2 }, { it === secondary }) { track ->
                 item(track.shortName, track === secondary, track.detail) { session.selectSecondary(track) }
             }
         }
     }
+}
+
+/**
+ * [list]'s choices: those [shown] says, then the rest under Other languages, folded away unless
+ * it's been [unfolded] or one of them is [selected]. With only a few others, they're all shown.
+ */
+@Composable
+internal fun <T> ColumnScope.FoldedChoices(
+    list: List<T>,
+    shown: (T) -> Boolean,
+    selected: (T) -> Boolean,
+    unfolded: Boolean,
+    onFold: () -> Unit,
+    row: @Composable (T) -> Unit,
+) {
+    val main = list.filter(shown)
+    val rest = list.filterNot(shown)
+    if (rest.size <= 2 || main.isEmpty()) {
+        list.forEach { row(it) }
+        return
+    }
+    main.forEach { row(it) }
+    val open = unfolded || rest.any(selected)
+    MenuFold("Other languages", rest.size, open, onClick = onFold)
+    MenuFoldBody(open) { rest.forEach { row(it) } }
 }
 
 /** Shown on a held line when no peek language is set (a track can still be picked under ⚙). */

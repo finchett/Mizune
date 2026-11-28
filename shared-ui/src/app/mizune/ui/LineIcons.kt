@@ -174,3 +174,35 @@ fun VolumeIcon(color: Color, level: Float, muted: Boolean, diameter: Dp = 16.dp)
         if (level > 0.5f) wave(d * 0.4f)
     }
 }
+
+/** Fill: the screen, and arrows out to its sides (the picture stretched out to them). */
+@Composable
+fun FillIcon(color: Color, diameter: Dp = 16.dp) {
+    Canvas(Modifier.size(diameter)) {
+        // on the extension's 16-unit grid
+        val u = size.minDimension / 16f
+        val stroke = Stroke(1.6f * u, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        drawRoundRect(color, Offset(0.96f * u, 2.56f * u), Size(14.08f * u, 10.88f * u), CornerRadius(1.92f * u), style = stroke)
+        val arrows = Path().apply {
+            moveTo(4.4f * u, 8f * u)
+            lineTo(11.6f * u, 8f * u)
+            moveTo(6.1f * u, 6.1f * u)
+            lineTo(4.2f * u, 8f * u)
+            lineTo(6.1f * u, 9.9f * u)
+            moveTo(9.9f * u, 6.1f * u)
+            lineTo(11.8f * u, 8f * u)
+            lineTo(9.9f * u, 9.9f * u)
+        }
+        drawPath(arrows, color, style = stroke)
+    }
+}
+
+/** Frame: the screen, and the picture as a card inside it, a gap all round. */
+@Composable
+fun FrameIcon(color: Color, diameter: Dp = 16.dp) {
+    Canvas(Modifier.size(diameter)) {
+        val u = size.minDimension / 16f
+        drawRoundRect(color, Offset(0.96f * u, 2.56f * u), Size(14.08f * u, 10.88f * u), CornerRadius(1.92f * u), style = Stroke(1.6f * u))
+        drawRoundRect(color, Offset(3.68f * u, 5.28f * u), Size(8.64f * u, 5.44f * u), CornerRadius(1.6f * u))
+    }
+}
